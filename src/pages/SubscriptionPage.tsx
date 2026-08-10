@@ -41,14 +41,30 @@ export const SubscriptionPage: React.FC<SubscriptionPageProps> = ({
     setMessage(null);
 
     try {
-      // Netlify function create-subscription will be called in Etapa 4
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      // Call Netlify Function create-subscription
+      const res = await fetch('/.netlify/functions/create-subscription', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          clinicId: clinicInfo?.name || 'clinic_demo_1',
+          email: clinicInfo?.email || 'admin@clinica.com',
+          fullName: 'Dr. Clinora',
+          clinicName: clinicInfo?.name || 'Clínica Odontológica',
+        }),
+      });
 
-      setMessage(
-        'Redirecionando para a integração com Mercado Pago... (As Netlify Functions do Mercado Pago serão conectadas na Etapa 4 conforme o plano de etapas).'
-      );
+      const data = await res.json();
+
+      if (data.initPoint) {
+        setMessage('Redirecionando para o checkout seguro do Mercado Pago...');
+        window.location.href = data.initPoint;
+      } else if (data.isMock || data.error) {
+        setMessage(`Aviso: ${data.error || 'Configure o MERCADOPAGO_ACCESS_TOKEN nas variáveis de ambiente do Netlify.'}`);
+      } else {
+        setMessage(data.message || 'Solicitação enviada. Verifique suas configurações de pagamento.');
+      }
     } catch (err: any) {
-      setMessage('Erro ao processar assinatura.');
+      setMessage('Atenção: A função Netlify de checkout pode ser ativada após a publicação no Netlify com o MERCADOPAGO_ACCESS_TOKEN configurado.');
     } finally {
       setLoading(false);
     }
@@ -199,19 +215,6 @@ export const SubscriptionPage: React.FC<SubscriptionPageProps> = ({
                     </>
                   )}
                 </button>
-
-                {/* Simulation toggle for Stage 1 testing */}
-                {onUpdateSubscriptionStatus && (
-                  <div className="pt-2 text-center">
-                    <button
-                      onClick={() => onUpdateSubscriptionStatus('active')}
-                      className="text-xs text-teal-400 hover:underline font-medium"
-                      id="sim-activate-btn"
-                    >
-                      [Simular confirmação de pagamento para testar navegação no Dashboard]
-                    </button>
-                  </div>
-                )}
               </div>
             ) : (
               <div className="space-y-3">
@@ -227,16 +230,6 @@ export const SubscriptionPage: React.FC<SubscriptionPageProps> = ({
                   Ir para o Dashboard da Clínica
                   <ArrowRight className="w-4 h-4" />
                 </button>
-                {onUpdateSubscriptionStatus && (
-                  <div className="text-center">
-                    <button
-                      onClick={() => onUpdateSubscriptionStatus('pending')}
-                      className="text-[11px] text-slate-500 hover:text-slate-300"
-                    >
-                      [Simular alteração de status para Pendente]
-                    </button>
-                  </div>
-                )}
               </div>
             )}
 

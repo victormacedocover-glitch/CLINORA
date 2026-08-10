@@ -5,6 +5,13 @@ import { RegisterPage } from './pages/RegisterPage';
 import { SubscriptionPage } from './pages/SubscriptionPage';
 import { DashboardPreview } from './pages/DashboardPreview';
 import { AdminPage } from './pages/AdminPage';
+import { PatientsPage } from './pages/PatientsPage';
+import { AgendaPage } from './pages/AgendaPage';
+import { ProceduresPage } from './pages/ProceduresPage';
+import { BudgetsPage } from './pages/BudgetsPage';
+import { FinancialPage } from './pages/FinancialPage';
+import { TasksPage } from './pages/TasksPage';
+import { OpportunitiesPage } from './pages/OpportunitiesPage';
 import { ModulePlaceholder } from './pages/ModulePlaceholder';
 import { Navbar } from './components/Navbar';
 import { Footer } from './components/Footer';
@@ -157,74 +164,25 @@ export default function App() {
           {currentRoute === '/dashboard' && (
             <DashboardPreview clinicName={user.clinicName} onNavigate={navigate} />
           )}
-          {currentRoute === '/pacientes' && (
-            <ModulePlaceholder
-              title="Pacientes"
-              description="Gestão, prontuários e histórico dos seus pacientes."
-              icon={Users}
-              onNavigate={navigate}
-            />
-          )}
-          {currentRoute === '/agenda' && (
-            <ModulePlaceholder
-              title="Agenda"
-              description="Agendamento diário, semanal e controle de horários."
-              icon={Calendar}
-              onNavigate={navigate}
-            />
-          )}
-          {currentRoute === '/procedimentos' && (
-            <ModulePlaceholder
-              title="Procedimentos"
-              description="Catálogo de procedimentos, preços e duração média."
-              icon={Sliders}
-              onNavigate={navigate}
-            />
-          )}
-          {currentRoute === '/orcamentos' && (
-            <ModulePlaceholder
-              title="Orçamentos"
-              description="Criação, envio e acompanhamento de aprovação de orçamentos."
-              icon={FileText}
-              onNavigate={navigate}
-            />
-          )}
-          {currentRoute === '/financeiro' && (
-            <ModulePlaceholder
-              title="Financeiro Básico"
-              description="Controle simples de receitas, despesas e fluxo de caixa."
-              icon={DollarSign}
-              onNavigate={navigate}
-            />
-          )}
-          {currentRoute === '/tarefas' && (
-            <ModulePlaceholder
-              title="Tarefas"
-              description="Organização de pendências da recepção e equipe."
-              icon={CheckSquare}
-              onNavigate={navigate}
-            />
-          )}
-          {currentRoute === '/oportunidades' && (
-            <ModulePlaceholder
-              title="Oportunidades"
-              description="Funil visual de vendas e relacionamento com novos pacientes."
-              icon={TrendingUp}
-              onNavigate={navigate}
-            />
-          )}
+          {currentRoute === '/pacientes' && <PatientsPage />}
+          {currentRoute === '/agenda' && <AgendaPage />}
+          {currentRoute === '/procedimentos' && <ProceduresPage />}
+          {currentRoute === '/orcamentos' && <BudgetsPage />}
+          {currentRoute === '/financeiro' && <FinancialPage />}
+          {currentRoute === '/tarefas' && <TasksPage />}
+          {currentRoute === '/oportunidades' && <OpportunitiesPage />}
           {currentRoute === '/relatorios' && (
             <ModulePlaceholder
-              title="Relatórios"
-              description="Indicadores fundamentais de desempenho e faturamento da clínica."
+              title="Relatórios & BI"
+              description="Indicadores de desempenho, taxa de conversão de orçamentos e receita média por paciente."
               icon={BarChart3}
               onNavigate={navigate}
             />
           )}
           {currentRoute === '/configuracoes' && (
             <ModulePlaceholder
-              title="Configurações"
-              description="Dados da clínica, usuários e personalização."
+              title="Configurações da Clínica"
+              description="Dados da empresa, logotipo, permissões e integração Supabase / Mercado Pago."
               icon={Settings}
               onNavigate={navigate}
             />
