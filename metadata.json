@@ -1,0 +1,6 @@
+{
+  "name": "Clinora",
+  "description": "Sistema de Gestão Simples e Eficiente para Clínicas Odontológicas e de Estética",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
