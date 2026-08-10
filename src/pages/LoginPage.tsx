@@ -6,7 +6,6 @@ import {
   ArrowRight,
   ShieldAlert,
   Loader2,
-  KeyRound,
 } from 'lucide-react';
 
 interface LoginPageProps {
@@ -161,23 +160,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               )}
             </button>
           </form>
-
-          {/* Quick Demo Assist Banner for Stage 1 navigation testing */}
-          <div className="bg-slate-900/60 border border-slate-800 p-3 rounded-xl text-[11px] text-slate-400 space-y-1">
-            <div className="flex items-center gap-1.5 text-slate-300 font-medium">
-              <KeyRound className="w-3.5 h-3.5 text-teal-400" />
-              Rotas de Teste da Etapa 1:
-            </div>
-            <p>
-              • E-mail comum → Redireciona para <code className="text-teal-300">/assinatura</code> (status <code className="text-amber-400">pending</code>)
-            </p>
-            <p>
-              • E-mail com "ativo" ou "pro" → Redireciona para <code className="text-teal-300">/dashboard</code> (status <code className="text-emerald-400">active</code>)
-            </p>
-            <p>
-              • E-mail com "admin" → Redireciona para <code className="text-teal-300">/admin</code> (super_admin)
-            </p>
-          </div>
 
           <div className="text-center pt-2 border-t border-slate-800">
             <p className="text-xs text-slate-400">
