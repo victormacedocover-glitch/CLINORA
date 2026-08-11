@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabaseServices, Patient } from '../lib/supabaseServices';
 import { Users, Plus, Search, Phone, Mail, Calendar, Trash2, UserPlus, CheckCircle2 } from 'lucide-react';
+import { ConfirmModal } from '../components/ConfirmModal';
 
 export function PatientsPage() {
   const [patients, setPatients] = useState<Patient[]>([]);
@@ -9,6 +10,8 @@ export function PatientsPage() {
   const [showModal, setShowModal] = useState(false);
   const [saving, setSaving] = useState(false);
   const [successMsg, setSuccessMsg] = useState('');
+  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   // Form state
   const [name, setName] = useState('');
@@ -55,11 +58,13 @@ export function PatientsPage() {
     loadPatients();
   };
 
-  const handleDelete = async (id: string) => {
-    if (confirm('Deseja realmente excluir este paciente?')) {
-      await supabaseServices.deletePatient(id);
-      loadPatients();
-    }
+  const confirmDelete = async () => {
+    if (!deleteTargetId) return;
+    setDeleting(true);
+    await supabaseServices.deletePatient(deleteTargetId);
+    setDeleting(false);
+    setDeleteTargetId(null);
+    loadPatients();
   };
 
   const filteredPatients = patients.filter(
@@ -148,7 +153,7 @@ export function PatientsPage() {
                     </div>
                   </div>
                   <button
-                    onClick={() => handleDelete(patient.id)}
+                    onClick={() => setDeleteTargetId(patient.id)}
                     className="p-1.5 text-slate-500 hover:text-red-400 rounded-lg hover:bg-slate-700/50 transition cursor-pointer"
                     title="Excluir paciente"
                   >
@@ -281,6 +286,15 @@ export function PatientsPage() {
           </div>
         </div>
       )}
+      {/* Modal - Confirmação de Exclusão */}
+      <ConfirmModal
+        isOpen={Boolean(deleteTargetId)}
+        title="Excluir Paciente"
+        message="Tem certeza que deseja excluir este paciente do sistema? Esta ação removerá os dados do cadastro."
+        loading={deleting}
+        onConfirm={confirmDelete}
+        onClose={() => setDeleteTargetId(null)}
+      />
     </div>
   );
 }

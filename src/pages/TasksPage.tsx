@@ -1,12 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { supabaseServices, Task } from '../lib/supabaseServices';
-import { CheckSquare, Plus, Clock, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { CheckSquare, Plus, Clock, AlertCircle, CheckCircle2, Trash2 } from 'lucide-react';
+import { ConfirmModal } from '../components/ConfirmModal';
 
 export function TasksPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   // Form
   const [title, setTitle] = useState('');
@@ -44,6 +47,26 @@ export function TasksPage() {
     loadData();
   };
 
+  const handleStatusChange = async (id: string, currentStatus: Task['status']) => {
+    const nextStatus: Task['status'] =
+      currentStatus === 'pendente'
+        ? 'em_andamento'
+        : currentStatus === 'em_andamento'
+        ? 'concluida'
+        : 'pendente';
+    await supabaseServices.updateTaskStatus(id, nextStatus);
+    loadData();
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTargetId) return;
+    setDeleting(true);
+    await supabaseServices.deleteTask(deleteTargetId);
+    setDeleting(false);
+    setDeleteTargetId(null);
+    loadData();
+  };
+
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-slate-800/60 p-6 rounded-2xl border border-slate-700/60 backdrop-blur-sm">
@@ -67,6 +90,10 @@ export function TasksPage() {
 
       {loading ? (
         <div className="text-center py-12 text-slate-400">Carregando tarefas...</div>
+      ) : tasks.length === 0 ? (
+        <div className="text-center py-12 text-slate-500 bg-slate-800/40 border border-slate-700/60 rounded-2xl">
+          Nenhuma tarefa cadastrada ainda.
+        </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {tasks.map((task) => (
@@ -76,17 +103,27 @@ export function TasksPage() {
             >
               <div className="flex justify-between items-start gap-3">
                 <h3 className="font-semibold text-white">{task.title}</h3>
-                <span
-                  className={`text-[11px] px-2.5 py-1 rounded-full font-medium ${
-                    task.status === 'concluida'
-                      ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                      : task.status === 'em_andamento'
-                      ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
-                      : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
-                  }`}
-                >
-                  {task.status.replace('_', ' ').toUpperCase()}
-                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => handleStatusChange(task.id, task.status)}
+                    className={`text-[11px] px-2.5 py-1 rounded-full font-medium transition cursor-pointer ${
+                      task.status === 'concluida'
+                        ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20'
+                        : task.status === 'em_andamento'
+                        ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20 hover:bg-blue-500/20'
+                        : 'bg-amber-500/10 text-amber-400 border border-amber-500/20 hover:bg-amber-500/20'
+                    }`}
+                  >
+                    {task.status.replace('_', ' ').toUpperCase()}
+                  </button>
+                  <button
+                    onClick={() => setDeleteTargetId(task.id)}
+                    className="p-1 text-slate-500 hover:text-rose-400 transition cursor-pointer"
+                    title="Excluir tarefa"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
 
               {task.description && <p className="text-xs text-slate-300">{task.description}</p>}
@@ -166,6 +203,15 @@ export function TasksPage() {
           </div>
         </div>
       )}
+      {/* Modal - Confirmação de Exclusão */}
+      <ConfirmModal
+        isOpen={Boolean(deleteTargetId)}
+        title="Excluir Tarefa"
+        message="Tem certeza que deseja excluir esta tarefa?"
+        loading={deleting}
+        onConfirm={confirmDelete}
+        onClose={() => setDeleteTargetId(null)}
+      />
     </div>
   );
 }

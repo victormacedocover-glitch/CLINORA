@@ -1,12 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { supabaseServices, ProcedureItem } from '../lib/supabaseServices';
-import { Sliders, Plus, Clock, DollarSign, CheckCircle2 } from 'lucide-react';
+import { Sliders, Plus, Clock, DollarSign, CheckCircle2, Trash2 } from 'lucide-react';
+import { ConfirmModal } from '../components/ConfirmModal';
 
 export function ProceduresPage() {
   const [procedures, setProcedures] = useState<ProcedureItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   // Form
   const [name, setName] = useState('');
@@ -45,6 +48,15 @@ export function ProceduresPage() {
     loadData();
   };
 
+  const confirmDelete = async () => {
+    if (!deleteTargetId) return;
+    setDeleting(true);
+    await supabaseServices.deleteProcedure(deleteTargetId);
+    setDeleting(false);
+    setDeleteTargetId(null);
+    loadData();
+  };
+
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-slate-800/60 p-6 rounded-2xl border border-slate-700/60 backdrop-blur-sm">
@@ -68,6 +80,10 @@ export function ProceduresPage() {
 
       {loading ? (
         <div className="text-center py-12 text-slate-400">Carregando catálogo...</div>
+      ) : procedures.length === 0 ? (
+        <div className="text-center py-12 text-slate-500 bg-slate-800/40 border border-slate-700/60 rounded-2xl">
+          Nenhum procedimento cadastrado ainda.
+        </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {procedures.map((proc) => (
@@ -77,9 +93,18 @@ export function ProceduresPage() {
             >
               <div className="flex justify-between items-start">
                 <h3 className="font-semibold text-white text-base">{proc.name}</h3>
-                <span className="text-xs px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-medium">
-                  Ativo
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-medium">
+                    Ativo
+                  </span>
+                  <button
+                    onClick={() => setDeleteTargetId(proc.id)}
+                    className="text-slate-500 hover:text-rose-400 p-1 transition cursor-pointer"
+                    title="Excluir procedimento"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
               <div className="pt-2 border-t border-slate-700/40 flex justify-between items-center text-sm">
                 <div className="flex items-center gap-1 text-slate-400 text-xs">
@@ -161,6 +186,15 @@ export function ProceduresPage() {
           </div>
         </div>
       )}
+      {/* Modal - Confirmação de Exclusão */}
+      <ConfirmModal
+        isOpen={Boolean(deleteTargetId)}
+        title="Excluir Procedimento"
+        message="Tem certeza que deseja excluir este procedimento da tabela de preços?"
+        loading={deleting}
+        onConfirm={confirmDelete}
+        onClose={() => setDeleteTargetId(null)}
+      />
     </div>
   );
 }

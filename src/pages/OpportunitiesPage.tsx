@@ -1,12 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { supabaseServices, Opportunity } from '../lib/supabaseServices';
-import { TrendingUp, Plus, User, DollarSign, ChevronRight } from 'lucide-react';
+import { TrendingUp, Plus, User, DollarSign, ChevronRight, Trash2, ArrowRight } from 'lucide-react';
+import { ConfirmModal } from '../components/ConfirmModal';
 
 export function OpportunitiesPage() {
   const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   // Form
   const [patientName, setPatientName] = useState('');
@@ -42,6 +45,25 @@ export function OpportunitiesPage() {
     setPatientName('');
     setTitle('');
     setValue(5000);
+    loadData();
+  };
+
+  const handleNextStage = async (op: Opportunity) => {
+    const stageIds = ['novo_lead', 'contato', 'orcamento', 'convertido'];
+    const idx = stageIds.indexOf(op.status);
+    if (idx < stageIds.length - 1) {
+      const nextStatus = stageIds[idx + 1] as Opportunity['status'];
+      await supabaseServices.updateOpportunityStatus(op.id, nextStatus);
+      loadData();
+    }
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTargetId) return;
+    setDeleting(true);
+    await supabaseServices.deleteOpportunity(deleteTargetId);
+    setDeleting(false);
+    setDeleteTargetId(null);
     loadData();
   };
 
@@ -100,13 +122,31 @@ export function OpportunitiesPage() {
                       key={op.id}
                       className="bg-slate-800 border border-slate-700 hover:border-slate-600 rounded-xl p-3.5 space-y-2 shadow-sm transition"
                     >
-                      <h4 className="font-semibold text-white text-sm">{op.title}</h4>
+                      <div className="flex justify-between items-start gap-2">
+                        <h4 className="font-semibold text-white text-sm">{op.title}</h4>
+                        <button
+                          onClick={() => setDeleteTargetId(op.id)}
+                          className="text-slate-500 hover:text-rose-400 transition cursor-pointer"
+                          title="Excluir"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                       <div className="flex items-center gap-1 text-xs text-slate-400">
                         <User className="w-3.5 h-3.5 text-emerald-400" />
                         <span>{op.patientName}</span>
                       </div>
-                      <div className="text-sm font-bold text-emerald-400 pt-1 border-t border-slate-700/40">
-                        R$ {op.value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                      <div className="flex justify-between items-center text-sm font-bold text-emerald-400 pt-2 border-t border-slate-700/40">
+                        <span>R$ {op.value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                        {op.status !== 'convertido' && (
+                          <button
+                            onClick={() => handleNextStage(op)}
+                            className="text-[10px] flex items-center gap-1 px-2 py-1 bg-teal-500/10 text-teal-300 rounded border border-teal-500/20 hover:bg-teal-500/20 cursor-pointer font-normal"
+                            title="Avançar estágio"
+                          >
+                            Avançar <ArrowRight className="w-3 h-3" />
+                          </button>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -188,6 +228,15 @@ export function OpportunitiesPage() {
           </div>
         </div>
       )}
+      {/* Modal - Confirmação de Exclusão */}
+      <ConfirmModal
+        isOpen={Boolean(deleteTargetId)}
+        title="Excluir Oportunidade"
+        message="Tem certeza que deseja excluir esta oportunidade do funil?"
+        loading={deleting}
+        onConfirm={confirmDelete}
+        onClose={() => setDeleteTargetId(null)}
+      />
     </div>
   );
 }

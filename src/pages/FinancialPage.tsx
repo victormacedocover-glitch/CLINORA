@@ -1,12 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { supabaseServices, Transaction } from '../lib/supabaseServices';
-import { DollarSign, Plus, ArrowUpRight, ArrowDownRight, Wallet, Calendar } from 'lucide-react';
+import { DollarSign, Plus, ArrowUpRight, ArrowDownRight, Wallet, Calendar, Trash2 } from 'lucide-react';
+import { ConfirmModal } from '../components/ConfirmModal';
 
 export function FinancialPage() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   // Form
   const [description, setDescription] = useState('');
@@ -43,6 +46,15 @@ export function FinancialPage() {
     setShowModal(false);
     setDescription('');
     setAmount(300);
+    loadData();
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTargetId) return;
+    setDeleting(true);
+    await supabaseServices.deleteTransaction(deleteTargetId);
+    setDeleting(false);
+    setDeleteTargetId(null);
     loadData();
   };
 
@@ -113,6 +125,10 @@ export function FinancialPage() {
       {/* Transactions Table */}
       {loading ? (
         <div className="text-center py-12 text-slate-400">Carregando movimentações...</div>
+      ) : transactions.length === 0 ? (
+        <div className="text-center py-12 text-slate-500 bg-slate-800/40 border border-slate-700/60 rounded-2xl">
+          Nenhuma movimentação lançada ainda.
+        </div>
       ) : (
         <div className="bg-slate-800/40 border border-slate-700/60 rounded-2xl overflow-hidden">
           <div className="p-4 bg-slate-800/80 border-b border-slate-700 font-semibold text-white text-sm">
@@ -137,13 +153,22 @@ export function FinancialPage() {
                   </div>
                 </div>
 
-                <div
-                  className={`font-bold text-base ${
-                    t.type === 'receita' ? 'text-emerald-400' : 'text-rose-400'
-                  }`}
-                >
-                  {t.type === 'receita' ? '+ ' : '- '}
-                  R$ {t.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                <div className="flex items-center gap-4">
+                  <div
+                    className={`font-bold text-base ${
+                      t.type === 'receita' ? 'text-emerald-400' : 'text-rose-400'
+                    }`}
+                  >
+                    {t.type === 'receita' ? '+ ' : '- '}
+                    R$ {t.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                  </div>
+                  <button
+                    onClick={() => setDeleteTargetId(t.id)}
+                    className="p-1.5 text-slate-500 hover:text-rose-400 rounded-lg hover:bg-slate-700/50 transition cursor-pointer"
+                    title="Excluir lançamento"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
                 </div>
               </div>
             ))}
@@ -245,6 +270,15 @@ export function FinancialPage() {
           </div>
         </div>
       )}
+      {/* Modal - Confirmação de Exclusão */}
+      <ConfirmModal
+        isOpen={Boolean(deleteTargetId)}
+        title="Excluir Transação"
+        message="Tem certeza que deseja excluir este lançamento financeiro?"
+        loading={deleting}
+        onConfirm={confirmDelete}
+        onClose={() => setDeleteTargetId(null)}
+      />
     </div>
   );
 }

@@ -78,7 +78,7 @@ export interface Opportunity {
 }
 
 // ============================================================================
-// DEMO LOCAL STORAGE STATE ENGINE (Fallback quando Supabase não estiver conectado)
+// DEMO LOCAL STORAGE STATE ENGINE (Persistent Base Data)
 // ============================================================================
 const DEMO_PATIENTS: Patient[] = [
   { id: 'p1', clinicId: 'c1', name: 'Mariana Costa', email: 'mariana@email.com', phone: '(11) 98888-1111', birthDate: '1992-05-14', notes: 'Paciente frequente, alergia a látex', createdAt: '2026-08-01' },
@@ -121,192 +121,254 @@ const DEMO_OPPORTUNITIES: Opportunity[] = [
   { id: 'op2', clinicId: 'c1', patientName: 'Gabriel Ramos', title: 'Consulta de Avaliação Ortodôntica', status: 'novo_lead', value: 4500, createdAt: '2026-08-06' },
 ];
 
-// Helper Function: Store Local
-function getLocal<T>(key: string, initial: T): T {
+// Helper Functions
+function getDeletedIds(): Set<string> {
   try {
-    const item = localStorage.getItem(key);
-    return item ? JSON.parse(item) : initial;
+    const item = localStorage.getItem('clinora_deleted_ids');
+    return item ? new Set(JSON.parse(item)) : new Set();
   } catch {
-    return initial;
+    return new Set();
+  }
+}
+
+function addDeletedId(id: string): void {
+  try {
+    const deleted = getDeletedIds();
+    deleted.add(id);
+    localStorage.setItem('clinora_deleted_ids', JSON.stringify(Array.from(deleted)));
+  } catch (err) {
+    console.error('Error saving deleted id', err);
+  }
+}
+
+function getLocal<T extends { id: string }>(key: string, initial: T[]): T[] {
+  try {
+    const deleted = getDeletedIds();
+    const item = localStorage.getItem(key);
+    if (!item) {
+      localStorage.setItem(key, JSON.stringify(initial));
+      return initial.filter((i) => !deleted.has(i.id));
+    }
+    const parsed = JSON.parse(item) as T[];
+    return parsed.filter((i) => !deleted.has(i.id));
+  } catch {
+    const deleted = getDeletedIds();
+    return initial.filter((i) => !deleted.has(i.id));
   }
 }
 
 function setLocal<T>(key: string, value: T): void {
   try {
     localStorage.setItem(key, JSON.stringify(value));
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('clinora_data_changed'));
+    }
   } catch (err) {
     console.error('Error writing to localStorage', err);
   }
 }
 
+// Helper to merge local items with Supabase response
+function mergeItems<T extends { id: string }>(serverItems: T[], localItems: T[]): T[] {
+  const deleted = getDeletedIds();
+  const map = new Map<string, T>();
+  // Put local items first (unless deleted)
+  localItems.forEach((item) => {
+    if (!deleted.has(item.id)) map.set(item.id, item);
+  });
+  // Override/Add server items (unless deleted)
+  serverItems.forEach((item) => {
+    if (!deleted.has(item.id)) map.set(item.id, item);
+  });
+  return Array.from(map.values());
+}
+
 // ============================================================================
-// SERVIÇOS DO SUPABASE & DEMO FALLBACK
+// SERVIÇOS DO SUPABASE & REAL-TIME LOCAL ENGINE
 // ============================================================================
 
 export const supabaseServices = {
   // PACIENTES
   async getPatients(): Promise<Patient[]> {
+    const local = getLocal('clinora_patients', DEMO_PATIENTS);
     if (isSupabaseConfigured) {
-      const { data, error } = await supabase.from('patients').select('*').order('created_at', { ascending: false });
-      if (!error && data) {
-        return data.map((d: any) => ({
-          id: d.id,
-          clinicId: d.clinic_id,
-          name: d.name,
-          email: d.email,
-          phone: d.phone,
-          birthDate: d.birth_date,
-          notes: d.notes,
-          createdAt: d.created_at,
-        }));
+      try {
+        const { data, error } = await supabase.from('patients').select('*').order('created_at', { ascending: false });
+        if (!error && data && data.length > 0) {
+          const mapped: Patient[] = data.map((d: any) => ({
+            id: d.id,
+            clinicId: d.clinic_id,
+            name: d.name,
+            email: d.email,
+            phone: d.phone,
+            birthDate: d.birth_date,
+            notes: d.notes,
+            createdAt: d.created_at,
+          }));
+          return mergeItems(mapped, local);
+        }
+      } catch (err) {
+        console.warn('Supabase fetch failed, fallback to local', err);
       }
     }
-    return getLocal('clinora_patients', DEMO_PATIENTS);
+    return local;
   },
 
   async createPatient(patient: Omit<Patient, 'id' | 'createdAt'>): Promise<Patient> {
     const newP: Patient = {
       ...patient,
-      id: 'p_' + Math.random().toString(36).substring(2, 9),
+      id: 'p_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
       createdAt: new Date().toISOString(),
     };
 
+    const current = getLocal('clinora_patients', DEMO_PATIENTS);
+    const updated = [newP, ...current];
+    setLocal('clinora_patients', updated);
+
     if (isSupabaseConfigured) {
-      const { data, error } = await supabase
-        .from('patients')
-        .insert({
+      try {
+        await supabase.from('patients').insert({
           clinic_id: patient.clinicId,
           name: patient.name,
           email: patient.email,
           phone: patient.phone,
           birth_date: patient.birthDate,
           notes: patient.notes,
-        })
-        .select()
-        .single();
-
-      if (!error && data) {
-        return {
-          id: data.id,
-          clinicId: data.clinic_id,
-          name: data.name,
-          email: data.email,
-          phone: data.phone,
-          birthDate: data.birth_date,
-          notes: data.notes,
-          createdAt: data.created_at,
-        };
+        });
+      } catch (err) {
+        console.warn('Supabase insert failed, persisted locally', err);
       }
     }
 
-    const current = getLocal('clinora_patients', DEMO_PATIENTS);
-    const updated = [newP, ...current];
-    setLocal('clinora_patients', updated);
     return newP;
   },
 
   async deletePatient(id: string): Promise<void> {
-    if (isSupabaseConfigured) {
-      await supabase.from('patients').delete().eq('id', id);
-    }
+    addDeletedId(id);
     const current = getLocal('clinora_patients', DEMO_PATIENTS);
     setLocal('clinora_patients', current.filter((p) => p.id !== id));
+
+    if (isSupabaseConfigured) {
+      try {
+        await supabase.from('patients').delete().eq('id', id);
+      } catch (err) {
+        console.warn('Supabase delete failed', err);
+      }
+    }
   },
 
   // PROCEDIMENTOS
   async getProcedures(): Promise<ProcedureItem[]> {
+    const local = getLocal('clinora_procedures', DEMO_PROCEDURES);
     if (isSupabaseConfigured) {
-      const { data, error } = await supabase.from('procedures').select('*').order('created_at', { ascending: false });
-      if (!error && data) {
-        return data.map((d: any) => ({
-          id: d.id,
-          clinicId: d.clinic_id,
-          name: d.name,
-          price: Number(d.price),
-          duration: d.duration,
-          active: d.active,
-          createdAt: d.created_at,
-        }));
+      try {
+        const { data, error } = await supabase.from('procedures').select('*').order('created_at', { ascending: false });
+        if (!error && data && data.length > 0) {
+          const mapped = data.map((d: any) => ({
+            id: d.id,
+            clinicId: d.clinic_id,
+            name: d.name,
+            price: Number(d.price),
+            duration: d.duration,
+            active: d.active,
+            createdAt: d.created_at,
+          }));
+          return mergeItems(mapped, local);
+        }
+      } catch (err) {
+        console.warn('Supabase fetch failed', err);
       }
     }
-    return getLocal('clinora_procedures', DEMO_PROCEDURES);
+    return local;
   },
 
   async createProcedure(proc: Omit<ProcedureItem, 'id' | 'createdAt'>): Promise<ProcedureItem> {
     const newProc: ProcedureItem = {
       ...proc,
-      id: 'pr_' + Math.random().toString(36).substring(2, 9),
+      id: 'pr_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
       createdAt: new Date().toISOString(),
     };
 
+    const current = getLocal('clinora_procedures', DEMO_PROCEDURES);
+    const updated = [newProc, ...current];
+    setLocal('clinora_procedures', updated);
+
     if (isSupabaseConfigured) {
-      const { data, error } = await supabase
-        .from('procedures')
-        .insert({
+      try {
+        await supabase.from('procedures').insert({
           clinic_id: proc.clinicId,
           name: proc.name,
           price: proc.price,
           duration: proc.duration,
           active: proc.active,
-        })
-        .select()
-        .single();
-
-      if (!error && data) {
-        return {
-          id: data.id,
-          clinicId: data.clinic_id,
-          name: data.name,
-          price: Number(data.price),
-          duration: data.duration,
-          active: data.active,
-          createdAt: data.created_at,
-        };
+        });
+      } catch (err) {
+        console.warn('Supabase procedure insert failed', err);
       }
     }
 
-    const current = getLocal('clinora_procedures', DEMO_PROCEDURES);
-    const updated = [newProc, ...current];
-    setLocal('clinora_procedures', updated);
     return newProc;
+  },
+
+  async deleteProcedure(id: string): Promise<void> {
+    addDeletedId(id);
+    const current = getLocal('clinora_procedures', DEMO_PROCEDURES);
+    setLocal('clinora_procedures', current.filter((p) => p.id !== id));
+
+    if (isSupabaseConfigured) {
+      try {
+        await supabase.from('procedures').delete().eq('id', id);
+      } catch (err) {
+        console.warn('Supabase delete procedure failed', err);
+      }
+    }
   },
 
   // CONSULTAS (AGENDA)
   async getAppointments(): Promise<Appointment[]> {
+    const local = getLocal('clinora_appointments', DEMO_APPOINTMENTS);
     if (isSupabaseConfigured) {
-      const { data, error } = await supabase
-        .from('appointments')
-        .select('*, patients(name)')
-        .order('date', { ascending: true });
-      if (!error && data) {
-        return data.map((d: any) => ({
-          id: d.id,
-          clinicId: d.clinic_id,
-          patientId: d.patient_id,
-          patientName: d.patients?.name || 'Paciente',
-          date: d.date,
-          time: d.time,
-          procedure: d.procedure,
-          status: d.status,
-          notes: d.notes,
-          createdAt: d.created_at,
-        }));
+      try {
+        const { data, error } = await supabase
+          .from('appointments')
+          .select('*, patients(name)')
+          .order('date', { ascending: true });
+        if (!error && data && data.length > 0) {
+          const mapped: Appointment[] = data.map((d: any) => ({
+            id: d.id,
+            clinicId: d.clinic_id,
+            patientId: d.patient_id,
+            patientName: d.patients?.name || d.patient_name || 'Paciente',
+            date: d.date,
+            time: d.time,
+            procedure: d.procedure,
+            status: d.status,
+            notes: d.notes,
+            createdAt: d.created_at,
+          }));
+          return mergeItems(mapped, local);
+        }
+      } catch (err) {
+        console.warn('Supabase appointment fetch failed', err);
       }
     }
-    return getLocal('clinora_appointments', DEMO_APPOINTMENTS);
+    return local;
   },
 
   async createAppointment(app: Omit<Appointment, 'id' | 'createdAt'>): Promise<Appointment> {
     const newApp: Appointment = {
       ...app,
-      id: 'a_' + Math.random().toString(36).substring(2, 9),
+      id: 'a_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
       createdAt: new Date().toISOString(),
     };
 
+    const current = getLocal('clinora_appointments', DEMO_APPOINTMENTS);
+    const updated = [newApp, ...current];
+    setLocal('clinora_appointments', updated);
+
     if (isSupabaseConfigured) {
-      const { data, error } = await supabase
-        .from('appointments')
-        .insert({
+      try {
+        await supabase.from('appointments').insert({
           clinic_id: app.clinicId,
           patient_id: app.patientId || null,
           date: app.date,
@@ -314,265 +376,348 @@ export const supabaseServices = {
           procedure: app.procedure,
           status: app.status,
           notes: app.notes,
-        })
-        .select()
-        .single();
-
-      if (!error && data) {
-        return {
-          id: data.id,
-          clinicId: data.clinic_id,
-          patientId: data.patient_id,
-          patientName: app.patientName,
-          date: data.date,
-          time: data.time,
-          procedure: data.procedure,
-          status: data.status,
-          notes: data.notes,
-          createdAt: data.created_at,
-        };
+        });
+      } catch (err) {
+        console.warn('Supabase appointment insert failed', err);
       }
     }
 
-    const current = getLocal('clinora_appointments', DEMO_APPOINTMENTS);
-    const updated = [newApp, ...current];
-    setLocal('clinora_appointments', updated);
     return newApp;
+  },
+
+  async updateAppointmentStatus(id: string, status: Appointment['status']): Promise<void> {
+    const current = getLocal('clinora_appointments', DEMO_APPOINTMENTS);
+    setLocal('clinora_appointments', current.map((a) => (a.id === id ? { ...a, status } : a)));
+
+    if (isSupabaseConfigured) {
+      try {
+        await supabase.from('appointments').update({ status }).eq('id', id);
+      } catch (err) {
+        console.warn('Supabase update status failed', err);
+      }
+    }
+  },
+
+  async deleteAppointment(id: string): Promise<void> {
+    addDeletedId(id);
+    const current = getLocal('clinora_appointments', DEMO_APPOINTMENTS);
+    setLocal('clinora_appointments', current.filter((a) => a.id !== id));
+
+    if (isSupabaseConfigured) {
+      try {
+        await supabase.from('appointments').delete().eq('id', id);
+      } catch (err) {
+        console.warn('Supabase delete appointment failed', err);
+      }
+    }
   },
 
   // ORÇAMENTOS
   async getBudgets(): Promise<Budget[]> {
+    const local = getLocal('clinora_budgets', DEMO_BUDGETS);
     if (isSupabaseConfigured) {
-      const { data, error } = await supabase.from('budgets').select('*, patients(name)').order('created_at', { ascending: false });
-      if (!error && data) {
-        return data.map((d: any) => ({
-          id: d.id,
-          clinicId: d.clinic_id,
-          patientId: d.patient_id,
-          patientName: d.patients?.name || 'Paciente',
-          description: d.description,
-          amount: Number(d.amount),
-          status: d.status,
-          createdAt: d.created_at,
-        }));
+      try {
+        const { data, error } = await supabase.from('budgets').select('*, patients(name)').order('created_at', { ascending: false });
+        if (!error && data && data.length > 0) {
+          const mapped: Budget[] = data.map((d: any) => ({
+            id: d.id,
+            clinicId: d.clinic_id,
+            patientId: d.patient_id,
+            patientName: d.patients?.name || d.patient_name || 'Paciente',
+            description: d.description,
+            amount: Number(d.amount),
+            status: d.status,
+            createdAt: d.created_at,
+          }));
+          return mergeItems(mapped, local);
+        }
+      } catch (err) {
+        console.warn('Supabase budgets fetch failed', err);
       }
     }
-    return getLocal('clinora_budgets', DEMO_BUDGETS);
+    return local;
   },
 
   async createBudget(b: Omit<Budget, 'id' | 'createdAt'>): Promise<Budget> {
     const newB: Budget = {
       ...b,
-      id: 'b_' + Math.random().toString(36).substring(2, 9),
+      id: 'b_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
       createdAt: new Date().toISOString(),
     };
 
+    const current = getLocal('clinora_budgets', DEMO_BUDGETS);
+    const updated = [newB, ...current];
+    setLocal('clinora_budgets', updated);
+
     if (isSupabaseConfigured) {
-      const { data, error } = await supabase
-        .from('budgets')
-        .insert({
+      try {
+        await supabase.from('budgets').insert({
           clinic_id: b.clinicId,
           patient_id: b.patientId || null,
           description: b.description,
           amount: b.amount,
           status: b.status,
-        })
-        .select()
-        .single();
-
-      if (!error && data) {
-        return {
-          id: data.id,
-          clinicId: data.clinic_id,
-          patientId: data.patient_id,
-          patientName: b.patientName,
-          description: data.description,
-          amount: Number(data.amount),
-          status: data.status,
-          createdAt: data.created_at,
-        };
+        });
+      } catch (err) {
+        console.warn('Supabase budget insert failed', err);
       }
     }
 
-    const current = getLocal('clinora_budgets', DEMO_BUDGETS);
-    const updated = [newB, ...current];
-    setLocal('clinora_budgets', updated);
     return newB;
+  },
+
+  async updateBudgetStatus(id: string, status: Budget['status']): Promise<void> {
+    const current = getLocal('clinora_budgets', DEMO_BUDGETS);
+    setLocal('clinora_budgets', current.map((b) => (b.id === id ? { ...b, status } : b)));
+
+    if (isSupabaseConfigured) {
+      try {
+        await supabase.from('budgets').update({ status }).eq('id', id);
+      } catch (err) {
+        console.warn('Supabase update budget status failed', err);
+      }
+    }
+  },
+
+  async deleteBudget(id: string): Promise<void> {
+    addDeletedId(id);
+    const current = getLocal('clinora_budgets', DEMO_BUDGETS);
+    setLocal('clinora_budgets', current.filter((b) => b.id !== id));
+
+    if (isSupabaseConfigured) {
+      try {
+        await supabase.from('budgets').delete().eq('id', id);
+      } catch (err) {
+        console.warn('Supabase delete budget failed', err);
+      }
+    }
   },
 
   // TRANSAÇÕES FINANCEIRAS
   async getTransactions(): Promise<Transaction[]> {
+    const local = getLocal('clinora_transactions', DEMO_TRANSACTIONS);
     if (isSupabaseConfigured) {
-      const { data, error } = await supabase.from('transactions').select('*').order('date', { ascending: false });
-      if (!error && data) {
-        return data.map((d: any) => ({
-          id: d.id,
-          clinicId: d.clinic_id,
-          description: d.description,
-          type: d.type,
-          amount: Number(d.amount),
-          status: d.status,
-          date: d.date,
-          createdAt: d.created_at,
-        }));
+      try {
+        const { data, error } = await supabase.from('transactions').select('*').order('date', { ascending: false });
+        if (!error && data && data.length > 0) {
+          const mapped = data.map((d: any) => ({
+            id: d.id,
+            clinicId: d.clinic_id,
+            description: d.description,
+            type: d.type,
+            amount: Number(d.amount),
+            status: d.status,
+            date: d.date,
+            createdAt: d.created_at,
+          }));
+          return mergeItems(mapped, local);
+        }
+      } catch (err) {
+        console.warn('Supabase transaction fetch failed', err);
       }
     }
-    return getLocal('clinora_transactions', DEMO_TRANSACTIONS);
+    return local;
   },
 
   async createTransaction(t: Omit<Transaction, 'id' | 'createdAt'>): Promise<Transaction> {
     const newT: Transaction = {
       ...t,
-      id: 't_' + Math.random().toString(36).substring(2, 9),
+      id: 't_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
       createdAt: new Date().toISOString(),
     };
 
+    const current = getLocal('clinora_transactions', DEMO_TRANSACTIONS);
+    const updated = [newT, ...current];
+    setLocal('clinora_transactions', updated);
+
     if (isSupabaseConfigured) {
-      const { data, error } = await supabase
-        .from('transactions')
-        .insert({
+      try {
+        await supabase.from('transactions').insert({
           clinic_id: t.clinicId,
           description: t.description,
           type: t.type,
           amount: t.amount,
           status: t.status,
           date: t.date,
-        })
-        .select()
-        .single();
-
-      if (!error && data) {
-        return {
-          id: data.id,
-          clinicId: data.clinic_id,
-          description: data.description,
-          type: data.type,
-          amount: Number(data.amount),
-          status: data.status,
-          date: data.date,
-          createdAt: data.created_at,
-        };
+        });
+      } catch (err) {
+        console.warn('Supabase transaction insert failed', err);
       }
     }
 
-    const current = getLocal('clinora_transactions', DEMO_TRANSACTIONS);
-    const updated = [newT, ...current];
-    setLocal('clinora_transactions', updated);
     return newT;
+  },
+
+  async deleteTransaction(id: string): Promise<void> {
+    addDeletedId(id);
+    const current = getLocal('clinora_transactions', DEMO_TRANSACTIONS);
+    setLocal('clinora_transactions', current.filter((t) => t.id !== id));
+
+    if (isSupabaseConfigured) {
+      try {
+        await supabase.from('transactions').delete().eq('id', id);
+      } catch (err) {
+        console.warn('Supabase delete transaction failed', err);
+      }
+    }
   },
 
   // TAREFAS
   async getTasks(): Promise<Task[]> {
+    const local = getLocal('clinora_tasks', DEMO_TASKS);
     if (isSupabaseConfigured) {
-      const { data, error } = await supabase.from('tasks').select('*').order('created_at', { ascending: false });
-      if (!error && data) {
-        return data.map((d: any) => ({
-          id: d.id,
-          clinicId: d.clinic_id,
-          title: d.title,
-          description: d.description,
-          status: d.status,
-          dueDate: d.due_date,
-          createdAt: d.created_at,
-        }));
+      try {
+        const { data, error } = await supabase.from('tasks').select('*').order('created_at', { ascending: false });
+        if (!error && data && data.length > 0) {
+          const mapped: Task[] = data.map((d: any) => ({
+            id: d.id,
+            clinicId: d.clinic_id,
+            title: d.title,
+            description: d.description,
+            status: d.status,
+            dueDate: d.due_date,
+            createdAt: d.created_at,
+          }));
+          return mergeItems(mapped, local);
+        }
+      } catch (err) {
+        console.warn('Supabase task fetch failed', err);
       }
     }
-    return getLocal('clinora_tasks', DEMO_TASKS);
+    return local;
   },
 
   async createTask(t: Omit<Task, 'id' | 'createdAt'>): Promise<Task> {
     const newT: Task = {
       ...t,
-      id: 'tk_' + Math.random().toString(36).substring(2, 9),
+      id: 'tk_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
       createdAt: new Date().toISOString(),
     };
 
+    const current = getLocal('clinora_tasks', DEMO_TASKS);
+    const updated = [newT, ...current];
+    setLocal('clinora_tasks', updated);
+
     if (isSupabaseConfigured) {
-      const { data, error } = await supabase
-        .from('tasks')
-        .insert({
+      try {
+        await supabase.from('tasks').insert({
           clinic_id: t.clinicId,
           title: t.title,
           description: t.description,
           status: t.status,
           due_date: t.dueDate,
-        })
-        .select()
-        .single();
-
-      if (!error && data) {
-        return {
-          id: data.id,
-          clinicId: data.clinic_id,
-          title: data.title,
-          description: data.description,
-          status: data.status,
-          dueDate: data.due_date,
-          createdAt: data.created_at,
-        };
+        });
+      } catch (err) {
+        console.warn('Supabase task insert failed', err);
       }
     }
 
-    const current = getLocal('clinora_tasks', DEMO_TASKS);
-    const updated = [newT, ...current];
-    setLocal('clinora_tasks', updated);
     return newT;
+  },
+
+  async updateTaskStatus(id: string, status: Task['status']): Promise<void> {
+    const current = getLocal('clinora_tasks', DEMO_TASKS);
+    setLocal('clinora_tasks', current.map((t) => (t.id === id ? { ...t, status } : t)));
+
+    if (isSupabaseConfigured) {
+      try {
+        await supabase.from('tasks').update({ status }).eq('id', id);
+      } catch (err) {
+        console.warn('Supabase task status update failed', err);
+      }
+    }
+  },
+
+  async deleteTask(id: string): Promise<void> {
+    addDeletedId(id);
+    const current = getLocal('clinora_tasks', DEMO_TASKS);
+    setLocal('clinora_tasks', current.filter((t) => t.id !== id));
+
+    if (isSupabaseConfigured) {
+      try {
+        await supabase.from('tasks').delete().eq('id', id);
+      } catch (err) {
+        console.warn('Supabase task delete failed', err);
+      }
+    }
   },
 
   // OPORTUNIDADES
   async getOpportunities(): Promise<Opportunity[]> {
+    const local = getLocal('clinora_opportunities', DEMO_OPPORTUNITIES);
     if (isSupabaseConfigured) {
-      const { data, error } = await supabase.from('opportunities').select('*').order('created_at', { ascending: false });
-      if (!error && data) {
-        return data.map((d: any) => ({
-          id: d.id,
-          clinicId: d.clinic_id,
-          patientName: d.patient_name || 'Lead Contact',
-          title: d.title,
-          status: d.status,
-          value: Number(d.value),
-          createdAt: d.created_at,
-        }));
+      try {
+        const { data, error } = await supabase.from('opportunities').select('*').order('created_at', { ascending: false });
+        if (!error && data && data.length > 0) {
+          const mapped = data.map((d: any) => ({
+            id: d.id,
+            clinicId: d.clinic_id,
+            patientName: d.patient_name || 'Lead Contact',
+            title: d.title,
+            status: d.status,
+            value: Number(d.value),
+            createdAt: d.created_at,
+          }));
+          return mergeItems(mapped, local);
+        }
+      } catch (err) {
+        console.warn('Supabase opportunity fetch failed', err);
       }
     }
-    return getLocal('clinora_opportunities', DEMO_OPPORTUNITIES);
+    return local;
   },
 
   async createOpportunity(op: Omit<Opportunity, 'id' | 'createdAt'>): Promise<Opportunity> {
     const newOp: Opportunity = {
       ...op,
-      id: 'op_' + Math.random().toString(36).substring(2, 9),
+      id: 'op_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
       createdAt: new Date().toISOString(),
     };
-
-    if (isSupabaseConfigured) {
-      const { data, error } = await supabase
-        .from('opportunities')
-        .insert({
-          clinic_id: op.clinicId,
-          title: op.title,
-          status: op.status,
-          value: op.value,
-        })
-        .select()
-        .single();
-
-      if (!error && data) {
-        return {
-          id: data.id,
-          clinicId: data.clinic_id,
-          patientName: op.patientName,
-          title: data.title,
-          status: data.status,
-          value: Number(data.value),
-          createdAt: data.created_at,
-        };
-      }
-    }
 
     const current = getLocal('clinora_opportunities', DEMO_OPPORTUNITIES);
     const updated = [newOp, ...current];
     setLocal('clinora_opportunities', updated);
+
+    if (isSupabaseConfigured) {
+      try {
+        await supabase.from('opportunities').insert({
+          clinic_id: op.clinicId,
+          title: op.title,
+          status: op.status,
+          value: op.value,
+        });
+      } catch (err) {
+        console.warn('Supabase opportunity insert failed', err);
+      }
+    }
+
     return newOp;
+  },
+
+  async updateOpportunityStatus(id: string, status: Opportunity['status']): Promise<void> {
+    const current = getLocal('clinora_opportunities', DEMO_OPPORTUNITIES);
+    setLocal('clinora_opportunities', current.map((op) => (op.id === id ? { ...op, status } : op)));
+
+    if (isSupabaseConfigured) {
+      try {
+        await supabase.from('opportunities').update({ status }).eq('id', id);
+      } catch (err) {
+        console.warn('Supabase opportunity status update failed', err);
+      }
+    }
+  },
+
+  async deleteOpportunity(id: string): Promise<void> {
+    addDeletedId(id);
+    const current = getLocal('clinora_opportunities', DEMO_OPPORTUNITIES);
+    setLocal('clinora_opportunities', current.filter((op) => op.id !== id));
+
+    if (isSupabaseConfigured) {
+      try {
+        await supabase.from('opportunities').delete().eq('id', id);
+      } catch (err) {
+        console.warn('Supabase opportunity delete failed', err);
+      }
+    }
   },
 };

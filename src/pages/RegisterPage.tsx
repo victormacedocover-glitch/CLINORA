@@ -56,6 +56,24 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
       // (In ETAPA 2 this will call Supabase Auth + RPC/table insert)
       await new Promise((resolve) => setTimeout(resolve, 800));
 
+      // Save to localStorage registered users array
+      try {
+        const stored = localStorage.getItem('clinora_registered_users');
+        const existing: any[] = stored ? JSON.parse(stored) : [];
+        const newUser = {
+          fullName,
+          email: email.trim().toLowerCase(),
+          clinicName,
+          clinicPhone,
+          hasActiveSubscription: false,
+          createdAt: new Date().toISOString(),
+        };
+        const updated = [...existing.filter((u) => u.email.toLowerCase() !== email.trim().toLowerCase()), newUser];
+        localStorage.setItem('clinora_registered_users', JSON.stringify(updated));
+      } catch (err) {
+        console.error('Error saving registered user locally:', err);
+      }
+
       onRegisterSuccess({
         fullName,
         email,

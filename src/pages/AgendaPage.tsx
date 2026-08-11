@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabaseServices, Appointment, Patient, ProcedureItem } from '../lib/supabaseServices';
-import { Calendar as CalendarIcon, Plus, Clock, User, FileText, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Calendar as CalendarIcon, Plus, Clock, User, FileText, CheckCircle2, AlertCircle, Trash2 } from 'lucide-react';
+import { ConfirmModal } from '../components/ConfirmModal';
 
 export function AgendaPage() {
   const [appointments, setAppointments] = useState<Appointment[]>([]);
@@ -10,6 +11,8 @@ export function AgendaPage() {
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [showModal, setShowModal] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   // Form
   const [patientName, setPatientName] = useState('');
@@ -53,6 +56,15 @@ export function AgendaPage() {
     setShowModal(false);
     setPatientName('');
     setNotes('');
+    loadData();
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTargetId) return;
+    setDeleting(true);
+    await supabaseServices.deleteAppointment(deleteTargetId);
+    setDeleting(false);
+    setDeleteTargetId(null);
     loadData();
   };
 
@@ -136,17 +148,34 @@ export function AgendaPage() {
               </div>
 
               <div className="flex items-center gap-3">
-                <span
-                  className={`text-xs px-3 py-1 rounded-full font-medium ${
+                <button
+                  onClick={async () => {
+                    const nextStatus =
+                      app.status === 'agendado'
+                        ? 'confirmado'
+                        : app.status === 'confirmado'
+                        ? 'concluido'
+                        : 'agendado';
+                    await supabaseServices.updateAppointmentStatus(app.id, nextStatus);
+                    loadData();
+                  }}
+                  className={`text-xs px-3 py-1 rounded-full font-medium cursor-pointer transition ${
                     app.status === 'confirmado'
-                      ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                      ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20'
                       : app.status === 'concluido'
-                      ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
-                      : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                      ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20 hover:bg-blue-500/20'
+                      : 'bg-amber-500/10 text-amber-400 border border-amber-500/20 hover:bg-amber-500/20'
                   }`}
                 >
                   {app.status.toUpperCase()}
-                </span>
+                </button>
+                <button
+                  onClick={() => setDeleteTargetId(app.id)}
+                  className="p-1.5 text-slate-500 hover:text-rose-400 rounded-lg hover:bg-slate-700/50 transition cursor-pointer"
+                  title="Excluir agendamento"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
               </div>
             </div>
           ))}
@@ -237,6 +266,15 @@ export function AgendaPage() {
           </div>
         </div>
       )}
+      {/* Modal - Confirmação de Exclusão */}
+      <ConfirmModal
+        isOpen={Boolean(deleteTargetId)}
+        title="Cancelar Agendamento"
+        message="Tem certeza que deseja cancelar e remover este agendamento da agenda?"
+        loading={deleting}
+        onConfirm={confirmDelete}
+        onClose={() => setDeleteTargetId(null)}
+      />
     </div>
   );
 }

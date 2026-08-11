@@ -12,33 +12,64 @@ import { BudgetsPage } from './pages/BudgetsPage';
 import { FinancialPage } from './pages/FinancialPage';
 import { TasksPage } from './pages/TasksPage';
 import { OpportunitiesPage } from './pages/OpportunitiesPage';
-import { ModulePlaceholder } from './pages/ModulePlaceholder';
+import { RelatoriosPage } from './pages/RelatoriosPage';
+import { ConfiguracoesPage } from './pages/ConfiguracoesPage';
 import { Navbar } from './components/Navbar';
 import { Footer } from './components/Footer';
 import { AppSidebar } from './components/AppSidebar';
 import { SubscriptionStatus, UserRole } from './types';
-import {
-  Users,
-  Calendar,
-  FileText,
-  DollarSign,
-  CheckSquare,
-  TrendingUp,
-  BarChart3,
-  Settings,
-  Sliders,
-} from 'lucide-react';
 
 export default function App() {
-  const [currentRoute, setCurrentRoute] = useState<string>('/');
+  const [currentRoute, setCurrentRoute] = useState<string>(() => {
+    return window.location.pathname || '/';
+  });
+
   const [user, setUser] = useState<{
     fullName: string;
     email: string;
     role: UserRole;
     clinicName: string;
-  } | null>(null);
+  } | null>(() => {
+    try {
+      const stored = localStorage.getItem('clinora_session');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        return parsed.user || null;
+      }
+    } catch (err) {
+      console.error(err);
+    }
+    return null;
+  });
 
-  const [subscriptionStatus, setSubscriptionStatus] = useState<SubscriptionStatus>('pending');
+  const [subscriptionStatus, setSubscriptionStatus] = useState<SubscriptionStatus>(() => {
+    try {
+      const stored = localStorage.getItem('clinora_session');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        return parsed.subscriptionStatus || 'pending';
+      }
+    } catch (err) {
+      console.error(err);
+    }
+    return 'pending';
+  });
+
+  // Keep localStorage session in sync
+  useEffect(() => {
+    try {
+      if (user) {
+        localStorage.setItem(
+          'clinora_session',
+          JSON.stringify({ user, subscriptionStatus })
+        );
+      } else {
+        localStorage.removeItem('clinora_session');
+      }
+    } catch (err) {
+      console.error('Error saving session:', err);
+    }
+  }, [user, subscriptionStatus]);
 
   // Handle browser URL hash or path state for navigation
   useEffect(() => {
@@ -52,7 +83,7 @@ export default function App() {
   }, []);
 
   const navigate = (route: string) => {
-    // PROTECTED ROUTES CHECK (#7 & #8)
+    // PROTECTED ROUTES CHECK
     const isProtectedRoute = [
       '/dashboard',
       '/pacientes',
@@ -75,7 +106,7 @@ export default function App() {
       }
 
       if (subscriptionStatus !== 'active' && user.role !== 'super_admin') {
-        // Authenticated but no active subscription -> redirect to /assinatura (#8)
+        // Authenticated but no active subscription -> redirect to /assinatura
         setCurrentRoute('/assinatura');
         window.history.pushState({}, '', '/assinatura');
         return;
@@ -111,7 +142,7 @@ export default function App() {
       role: 'clinic_admin',
       clinicName: data.clinicName,
     });
-    setSubscriptionStatus('pending'); // Initial registration status is pending (#5)
+    setSubscriptionStatus('pending');
   };
 
   const handleLoginSuccess = (
@@ -146,6 +177,8 @@ export default function App() {
       '/oportunidades',
       '/relatorios',
       '/configuracoes',
+      '/admin',
+      '/assinatura',
     ].includes(currentRoute) &&
     user &&
     (subscriptionStatus === 'active' || user.role === 'super_admin');
@@ -160,7 +193,7 @@ export default function App() {
           isSuperAdmin={user.role === 'super_admin'}
           onLogout={handleLogout}
         />
-        <main className="flex-1 overflow-y-auto">
+        <main className="flex-1 overflow-y-auto bg-slate-900">
           {currentRoute === '/dashboard' && (
             <DashboardPreview clinicName={user.clinicName} onNavigate={navigate} />
           )}
@@ -171,20 +204,17 @@ export default function App() {
           {currentRoute === '/financeiro' && <FinancialPage />}
           {currentRoute === '/tarefas' && <TasksPage />}
           {currentRoute === '/oportunidades' && <OpportunitiesPage />}
-          {currentRoute === '/relatorios' && (
-            <ModulePlaceholder
-              title="Relatórios & BI"
-              description="Indicadores de desempenho, taxa de conversão de orçamentos e receita média por paciente."
-              icon={BarChart3}
-              onNavigate={navigate}
-            />
-          )}
+          {currentRoute === '/relatorios' && <RelatoriosPage />}
           {currentRoute === '/configuracoes' && (
-            <ModulePlaceholder
-              title="Configurações da Clínica"
-              description="Dados da empresa, logotipo, permissões e integração Supabase / Mercado Pago."
-              icon={Settings}
+            <ConfiguracoesPage clinicName={user.clinicName} />
+          )}
+          {currentRoute === '/admin' && <AdminPage onNavigate={navigate} />}
+          {currentRoute === '/assinatura' && (
+            <SubscriptionPage
               onNavigate={navigate}
+              clinicInfo={user ? { name: user.clinicName, email: user.email } : null}
+              subscriptionStatus={subscriptionStatus}
+              onUpdateSubscriptionStatus={setSubscriptionStatus}
             />
           )}
         </main>
@@ -223,9 +253,10 @@ export default function App() {
       </main>
 
       {/* Footer for Public pages */}
-      {['/', '/login', '/cadastro', '/assinatura'].includes(currentRoute) && (
+      {['/', '/login', '/cadastro'].includes(currentRoute) && (
         <Footer onNavigate={navigate} />
       )}
     </div>
   );
 }
+

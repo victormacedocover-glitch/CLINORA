@@ -1,12 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { supabaseServices, Budget } from '../lib/supabaseServices';
-import { FileText, Plus, DollarSign, User, CheckCircle2, Send, Clock, XCircle } from 'lucide-react';
+import { FileText, Plus, DollarSign, User, CheckCircle2, Send, Clock, XCircle, Trash2, Check } from 'lucide-react';
+import { ConfirmModal } from '../components/ConfirmModal';
 
 export function BudgetsPage() {
   const [budgets, setBudgets] = useState<Budget[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   // Form
   const [patientName, setPatientName] = useState('');
@@ -45,6 +48,20 @@ export function BudgetsPage() {
     loadData();
   };
 
+  const handleStatusChange = async (id: string, status: Budget['status']) => {
+    await supabaseServices.updateBudgetStatus(id, status);
+    loadData();
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTargetId) return;
+    setDeleting(true);
+    await supabaseServices.deleteBudget(deleteTargetId);
+    setDeleting(false);
+    setDeleteTargetId(null);
+    loadData();
+  };
+
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-slate-800/60 p-6 rounded-2xl border border-slate-700/60 backdrop-blur-sm">
@@ -68,6 +85,10 @@ export function BudgetsPage() {
 
       {loading ? (
         <div className="text-center py-12 text-slate-400">Carregando orçamentos...</div>
+      ) : budgets.length === 0 ? (
+        <div className="text-center py-12 text-slate-500 bg-slate-800/40 border border-slate-700/60 rounded-2xl">
+          Nenhum orçamento cadastrado ainda.
+        </div>
       ) : (
         <div className="space-y-3">
           {budgets.map((b) => (
@@ -93,17 +114,27 @@ export function BudgetsPage() {
                     R$ {b.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                   </span>
                 </div>
-                <span
-                  className={`text-xs px-3 py-1.5 rounded-full font-medium ${
-                    b.status === 'aprovado'
-                      ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                      : b.status === 'enviado'
-                      ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
-                      : 'bg-slate-700 text-slate-300'
-                  }`}
-                >
-                  {b.status.toUpperCase()}
-                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => handleStatusChange(b.id, b.status === 'aprovado' ? 'enviado' : 'aprovado')}
+                    className={`text-xs px-3 py-1.5 rounded-full font-medium transition cursor-pointer ${
+                      b.status === 'aprovado'
+                        ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20'
+                        : b.status === 'enviado'
+                        ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20 hover:bg-amber-500/20'
+                        : 'bg-slate-700 text-slate-300'
+                    }`}
+                  >
+                    {b.status === 'aprovado' ? '✓ APROVADO' : 'APROVAR?'}
+                  </button>
+                  <button
+                    onClick={() => setDeleteTargetId(b.id)}
+                    className="p-1.5 text-slate-500 hover:text-rose-400 rounded-lg hover:bg-slate-700/50 transition cursor-pointer"
+                    title="Excluir orçamento"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
             </div>
           ))}
@@ -176,6 +207,15 @@ export function BudgetsPage() {
           </div>
         </div>
       )}
+      {/* Modal - Confirmação de Exclusão */}
+      <ConfirmModal
+        isOpen={Boolean(deleteTargetId)}
+        title="Excluir Orçamento"
+        message="Tem certeza que deseja excluir esta proposta de orçamento?"
+        loading={deleting}
+        onConfirm={confirmDelete}
+        onClose={() => setDeleteTargetId(null)}
+      />
     </div>
   );
 }
