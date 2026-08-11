@@ -1,17 +1,21 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   ShieldCheck,
   Check,
   AlertCircle,
   CreditCard,
   Lock,
-  Zap,
   ArrowRight,
   Sparkles,
   Building2,
   Clock,
   Shield,
   Loader2,
+  QrCode,
+  FileText,
+  ExternalLink,
+  CheckCircle2,
+  Zap,
 } from 'lucide-react';
 import { CLINORA_PRO_PLAN, SubscriptionStatus } from '../types';
 
@@ -31,96 +35,123 @@ export const SubscriptionPage: React.FC<SubscriptionPageProps> = ({
   subscriptionStatus = 'pending',
   onUpdateSubscriptionStatus,
 }) => {
-  const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
+  const [mpRedirecting, setMpRedirecting] = useState(false);
+  const [customMpLink, setCustomMpLink] = useState('');
+  const [autoChecking, setAutoChecking] = useState(false);
 
   const isActive = subscriptionStatus === 'active';
 
-  const handleSubscribe = async () => {
-    setLoading(true);
-    setMessage(null);
-
-    // Update subscription status in app state
-    if (onUpdateSubscriptionStatus) {
-      onUpdateSubscriptionStatus('active');
+  // Load custom Mercado Pago link from localStorage if configured
+  useEffect(() => {
+    const savedLink = localStorage.getItem('clinora_mp_checkout_link');
+    if (savedLink) {
+      setCustomMpLink(savedLink);
     }
+  }, []);
 
-    // Update in registered users if exists
-    if (clinicInfo?.email) {
-      try {
-        const stored = localStorage.getItem('clinora_registered_users');
-        if (stored) {
-          const users = JSON.parse(stored);
-          const updated = users.map((u: any) =>
-            u.email.toLowerCase() === clinicInfo.email.toLowerCase()
-              ? { ...u, hasActiveSubscription: true }
-              : u
-          );
-          localStorage.setItem('clinora_registered_users', JSON.stringify(updated));
+  // Automatic verification of Mercado Pago return parameters
+  useEffect(() => {
+    const searchParams = new URLSearchParams(window.location.search);
+    const statusParam =
+      searchParams.get('status') ||
+      searchParams.get('collection_status') ||
+      searchParams.get('payment_status');
+    const paymentId = searchParams.get('payment_id') || searchParams.get('collection_id');
+
+    if (
+      statusParam === 'approved' ||
+      statusParam === 'success' ||
+      (paymentId && statusParam !== 'rejected' && statusParam !== 'pending')
+    ) {
+      setAutoChecking(true);
+
+      // Auto update subscription status
+      if (onUpdateSubscriptionStatus) {
+        onUpdateSubscriptionStatus('active');
+      }
+
+      // Auto update registered user in localStorage
+      if (clinicInfo?.email) {
+        try {
+          const stored = localStorage.getItem('clinora_registered_users');
+          if (stored) {
+            const users = JSON.parse(stored);
+            const updated = users.map((u: any) =>
+              u.email.toLowerCase() === clinicInfo.email.toLowerCase()
+                ? { ...u, hasActiveSubscription: true }
+                : u
+            );
+            localStorage.setItem('clinora_registered_users', JSON.stringify(updated));
+          }
+        } catch (e) {
+          console.error(e);
         }
-      } catch (e) {
-        console.error(e);
       }
-    }
 
-    try {
-      // Call Netlify Function create-subscription
-      const res = await fetch('/.netlify/functions/create-subscription', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          clinicId: clinicInfo?.name || 'clinic_demo_1',
-          email: clinicInfo?.email || 'admin@clinica.com',
-          fullName: 'Dr. Clinora',
-          clinicName: clinicInfo?.name || 'Clínica Odontológica',
-        }),
-      });
+      // Clean query params
+      window.history.replaceState({}, '', window.location.pathname);
 
-      const data = await res.json();
-
-      if (data.initPoint) {
-        setMessage('Redirecionando para o checkout seguro do Mercado Pago...');
-        window.location.href = data.initPoint;
-      } else {
-        setMessage('Assinatura ativada com sucesso! Você já tem acesso total ao Clinora Pro.');
-        setTimeout(() => {
-          onNavigate('/dashboard');
-        }, 1200);
-      }
-    } catch (err: any) {
-      setMessage('Plano ativado no sistema! Redirecionando para o seu Painel...');
       setTimeout(() => {
+        setAutoChecking(false);
         onNavigate('/dashboard');
-      }, 1200);
-    } finally {
-      setLoading(false);
+      }, 1500);
     }
+  }, [clinicInfo, onNavigate, onUpdateSubscriptionStatus]);
+
+  // Default Mercado Pago preference or custom link
+  const defaultMpCheckoutUrl =
+    customMpLink ||
+    `https://www.mercadopago.com.br/checkout/v1/redirect?pref_id=CLINORA_VITALICIO_14990`;
+
+  const handleOpenMercadoPago = () => {
+    setMpRedirecting(true);
+
+    // Store intent
+    localStorage.setItem('clinora_mp_checkout_started', 'true');
+
+    // Open Mercado Pago checkout
+    window.location.href = defaultMpCheckoutUrl;
   };
 
   return (
     <div className="min-h-screen bg-slate-900 text-slate-100 py-12 px-4 sm:px-6 lg:px-8 relative overflow-hidden">
       {/* Background glow */}
-      <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-teal-500/10 blur-[140px] rounded-full pointer-events-none" />
+      <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-sky-500/10 blur-[140px] rounded-full pointer-events-none" />
 
       <div className="max-w-4xl mx-auto space-y-8 relative z-10">
+        {/* Auto-checking overlay/alert if returning from MP */}
+        {autoChecking && (
+          <div className="bg-emerald-950/90 border-2 border-emerald-500 text-emerald-200 p-6 rounded-2xl shadow-2xl flex items-center justify-center gap-4 animate-bounce">
+            <Loader2 className="w-8 h-8 text-emerald-400 animate-spin" />
+            <div>
+              <p className="font-extrabold text-lg text-white">
+                Pagamento Aprovado pelo Mercado Pago!
+              </p>
+              <p className="text-xs text-emerald-300">
+                Identificamos a transação com sucesso. Liberando seu Acesso Vitalício...
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Header Title */}
         <div className="text-center space-y-3">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-teal-500/10 border border-teal-500/30 text-teal-400 text-xs font-semibold uppercase tracking-wider">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-sky-500/10 border border-sky-500/30 text-sky-400 text-xs font-semibold uppercase tracking-wider">
             <Sparkles className="w-3.5 h-3.5" />
-            Ativação do Plano
+            Pagamento Único Mercado Pago • Licença Vitalícia
           </div>
 
           <h1 className="text-3xl sm:text-4xl font-extrabold text-white tracking-tight">
-            Assinatura Clinora Pro
+            Checkout Oficial Mercado Pago
           </h1>
 
           <p className="text-slate-400 text-sm max-w-xl mx-auto">
-            Para liberar o acesso ao sistema e começar a gerenciar sua clínica, ative sua assinatura mensal.
+            Adquira o Clinora Pro com pagamento único de R$ 149,90 no gateway do Mercado Pago. O sistema identifica o pagamento automaticamente e libera o acesso!
           </p>
 
           {clinicInfo && (
             <div className="inline-flex items-center gap-2 bg-slate-950 border border-slate-800 px-4 py-2 rounded-xl text-xs text-slate-300">
-              <Building2 className="w-4 h-4 text-teal-400" />
+              <Building2 className="w-4 h-4 text-sky-400" />
               <span>
                 Clínica: <strong className="text-white">{clinicInfo.name}</strong> ({clinicInfo.email})
               </span>
@@ -128,9 +159,9 @@ export const SubscriptionPage: React.FC<SubscriptionPageProps> = ({
           )}
         </div>
 
-        {/* Status Notice Banner (#9) */}
+        {/* Status Notice Banner */}
         <div
-          className={`p-4 rounded-2xl border text-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-lg ${
+          className={`p-5 rounded-2xl border text-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-lg ${
             isActive
               ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-200'
               : 'bg-amber-950/60 border-amber-500/40 text-amber-200'
@@ -149,12 +180,12 @@ export const SubscriptionPage: React.FC<SubscriptionPageProps> = ({
             )}
             <div>
               <p className="font-bold text-base text-white">
-                {isActive ? 'Sua assinatura está ativa.' : 'Sua assinatura ainda não está ativa.'}
+                {isActive ? 'Acesso Vitalício Ativado!' : 'Acesso Bloqueado • Pagamento Pendente'}
               </p>
               <p className="text-xs text-slate-300">
                 {isActive
-                  ? 'Você tem acesso ilimitado a todas as funcionalidades do Clinora Pro.'
-                  : 'Sua conta foi criada com sucesso, mas o acesso ao sistema requer a assinatura ativa.'}
+                  ? 'Sua licença definitiva foi liberada com sucesso. Aproveite o Clinora sem mensalidades!'
+                  : 'Para liberar os módulos do Clinora, efetue o pagamento único de R$ 149,90 no Mercado Pago.'}
               </p>
             </div>
           </div>
@@ -162,27 +193,27 @@ export const SubscriptionPage: React.FC<SubscriptionPageProps> = ({
           {isActive ? (
             <button
               onClick={() => onNavigate('/dashboard')}
-              className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold px-5 py-2.5 rounded-xl text-xs flex items-center gap-1.5 shrink-0 transition-all shadow-md shadow-emerald-500/20"
+              className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold px-5 py-2.5 rounded-xl text-xs flex items-center gap-1.5 shrink-0 transition-all shadow-md shadow-emerald-500/20 cursor-pointer"
               id="goto-dashboard-btn"
             >
               Acessar Painel
               <ArrowRight className="w-4 h-4" />
             </button>
           ) : (
-            <span className="text-xs font-semibold px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 shrink-0">
-              Aguardando pagamento
+            <span className="text-xs font-bold px-3 py-1.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 shrink-0 uppercase tracking-wide">
+              Pagamento Obrigatório
             </span>
           )}
         </div>
 
         {/* Plan Details Card */}
-        <div className="bg-slate-950 border-2 border-teal-500/80 rounded-3xl p-6 sm:p-8 shadow-2xl space-y-8 relative overflow-hidden">
+        <div className="bg-slate-950 border-2 border-sky-500/80 rounded-3xl p-6 sm:p-8 shadow-2xl space-y-8 relative overflow-hidden">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-slate-800">
             <div>
               <div className="flex items-center gap-2 mb-1">
                 <h2 className="text-2xl font-extrabold text-white">{CLINORA_PRO_PLAN.name}</h2>
-                <span className="text-[10px] font-extrabold bg-teal-500/20 text-teal-400 border border-teal-500/30 px-2.5 py-0.5 rounded-full uppercase">
-                  Plano Único
+                <span className="text-[10px] font-extrabold bg-sky-500/20 text-sky-400 border border-sky-500/30 px-2.5 py-0.5 rounded-full uppercase">
+                  Acesso Vitalício
                 </span>
               </div>
               <p className="text-xs text-slate-400">{CLINORA_PRO_PLAN.description}</p>
@@ -192,19 +223,19 @@ export const SubscriptionPage: React.FC<SubscriptionPageProps> = ({
               <p className="text-3xl font-black text-white">
                 R$ {CLINORA_PRO_PLAN.price.toFixed(2).replace('.', ',')}
               </p>
-              <p className="text-xs text-slate-400">por mês (cobrança recorrente)</p>
+              <p className="text-xs text-sky-400 font-bold uppercase">PAGAMENTO ÚNICO MERCADO PAGO</p>
             </div>
           </div>
 
           {/* Features Grid */}
           <div>
             <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4">
-              O que está incluído na sua assinatura PRO:
+              O que está incluso na sua Licença Definitiva:
             </h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {CLINORA_PRO_PLAN.features.map((feature, idx) => (
                 <div key={idx} className="flex items-start gap-2.5 text-xs text-slate-200">
-                  <div className="w-4 h-4 rounded-full bg-teal-500/20 text-teal-400 flex items-center justify-center shrink-0 mt-0.5">
+                  <div className="w-4 h-4 rounded-full bg-sky-500/20 text-sky-400 flex items-center justify-center shrink-0 mt-0.5">
                     <Check className="w-3 h-3" />
                   </div>
                   <span>{feature}</span>
@@ -213,67 +244,91 @@ export const SubscriptionPage: React.FC<SubscriptionPageProps> = ({
             </div>
           </div>
 
-          {/* Notice & Subscribe Action */}
-          <div className="space-y-4 pt-4 border-t border-slate-800">
-            {message && (
-              <div className="bg-slate-900 border border-teal-500/30 p-3 rounded-xl text-xs text-teal-300">
-                {message}
-              </div>
-            )}
+          {/* Mercado Pago Direct Checkout Section */}
+          {!isActive && (
+            <div className="space-y-6 pt-6 border-t border-slate-800">
+              <div className="bg-slate-900 border border-sky-500/30 p-6 rounded-2xl space-y-6 relative overflow-hidden">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-12 h-12 rounded-2xl bg-sky-500/20 border border-sky-500/40 flex items-center justify-center text-sky-400 shrink-0">
+                      <CreditCard className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <h3 className="text-base font-bold text-white flex items-center gap-2">
+                        Pagar com Mercado Pago
+                      </h3>
+                      <p className="text-xs text-slate-400">
+                        PIX, Cartão de Crédito em até 12x ou Boleto Bancário.
+                      </p>
+                    </div>
+                  </div>
 
-            {!isActive ? (
-              <div className="space-y-3">
-                <button
-                  onClick={handleSubscribe}
-                  disabled={loading}
-                  className="w-full bg-gradient-to-r from-teal-500 to-teal-600 hover:from-teal-400 hover:to-teal-500 text-white font-bold py-4 rounded-xl shadow-xl shadow-teal-500/25 transition-all text-sm flex items-center justify-center gap-2"
-                  id="subscribe-pro-btn"
-                >
-                  {loading ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      Iniciando checkout Mercado Pago...
-                    </>
-                  ) : (
-                    <>
-                      <CreditCard className="w-4 h-4" />
-                      Assinar Clinora Pro (R$ 149,90/mês)
-                      <ArrowRight className="w-4 h-4" />
-                    </>
-                  )}
-                </button>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                <div className="bg-emerald-950/40 border border-emerald-500/30 p-4 rounded-xl text-xs text-emerald-300 text-center space-y-1">
-                  <p className="font-bold">Sua assinatura Clinora Pro está ativa!</p>
-                  <p className="text-slate-300">Você já pode utilizar todos os recursos do sistema.</p>
+                  <span className="hidden sm:inline-block px-3 py-1 rounded-full bg-sky-500/20 text-sky-300 border border-sky-500/30 text-[11px] font-bold">
+                    Checkout Seguro Mercado Pago
+                  </span>
                 </div>
-                <button
-                  onClick={() => onNavigate('/dashboard')}
-                  className="w-full bg-teal-600 hover:bg-teal-500 text-white font-bold py-3 rounded-xl text-xs transition-colors flex items-center justify-center gap-2"
-                  id="dashboard-access-btn"
-                >
-                  Ir para o Dashboard da Clínica
-                  <ArrowRight className="w-4 h-4" />
-                </button>
-              </div>
-            )}
 
-            {/* Payment security info */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 text-[11px] text-slate-400">
-              <div className="flex items-center gap-1.5 justify-center sm:justify-start">
-                <Lock className="w-3.5 h-3.5 text-teal-400 shrink-0" />
-                <span>Processamento Mercado Pago</span>
+                {/* Badges of accepted methods in Mercado Pago */}
+                <div className="grid grid-cols-3 gap-3 text-center text-xs">
+                  <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 space-y-1">
+                    <QrCode className="w-5 h-5 text-emerald-400 mx-auto" />
+                    <p className="font-bold text-white">PIX</p>
+                    <p className="text-[10px] text-slate-400">Aprovação imediata</p>
+                  </div>
+                  <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 space-y-1">
+                    <CreditCard className="w-5 h-5 text-sky-400 mx-auto" />
+                    <p className="font-bold text-white">Cartão de Crédito</p>
+                    <p className="text-[10px] text-slate-400">Em até 12x</p>
+                  </div>
+                  <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 space-y-1">
+                    <FileText className="w-5 h-5 text-amber-400 mx-auto" />
+                    <p className="font-bold text-white">Boleto Bancário</p>
+                    <p className="text-[10px] text-slate-400">À vista</p>
+                  </div>
+                </div>
+
+                {/* Primary CTA button to Mercado Pago */}
+                <div className="space-y-3 pt-2">
+                  <button
+                    onClick={handleOpenMercadoPago}
+                    disabled={mpRedirecting}
+                    className="w-full bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 text-white font-extrabold py-4 px-6 rounded-xl shadow-xl shadow-sky-500/25 text-sm flex items-center justify-center gap-2.5 transition-all cursor-pointer group disabled:opacity-50"
+                  >
+                    {mpRedirecting ? (
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                    ) : (
+                      <ExternalLink className="w-5 h-5 group-hover:scale-110 transition-transform" />
+                    )}
+                    Efetuar Pagamento Único no Mercado Pago (R$ 149,90)
+                  </button>
+
+                  <div className="bg-slate-950 p-4 rounded-xl border border-slate-800/80 text-[11px] text-slate-400 space-y-1 text-center">
+                    <p className="text-slate-300 font-semibold flex items-center justify-center gap-1.5">
+                      <Zap className="w-3.5 h-3.5 text-amber-400" />
+                      Liberação Automática pelo Mercado Pago
+                    </p>
+                    <p>
+                      Assim que o pagamento for aprovado no Mercado Pago, o sistema identificará e liberará seu acesso vitalício instantaneamente sem necessidade de botões de confirmação manual.
+                    </p>
+                  </div>
+                </div>
               </div>
-              <div className="flex items-center gap-1.5 justify-center">
-                <Clock className="w-3.5 h-3.5 text-teal-400 shrink-0" />
-                <span>Sem contrato de fidelidade</span>
-              </div>
-              <div className="flex items-center gap-1.5 justify-center sm:justify-end">
-                <Shield className="w-3.5 h-3.5 text-teal-400 shrink-0" />
-                <span>Cancelamento a qualquer momento</span>
-              </div>
+            </div>
+          )}
+
+          {/* Payment security info */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-4 border-t border-slate-800 text-[11px] text-slate-400">
+            <div className="flex items-center gap-1.5 justify-center sm:justify-start">
+              <Lock className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+              <span>Processamento Oficial Mercado Pago</span>
+            </div>
+            <div className="flex items-center gap-1.5 justify-center">
+              <Clock className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+              <span>Licença Vitalícia Sem Mensalidades</span>
+            </div>
+            <div className="flex items-center gap-1.5 justify-center sm:justify-end">
+              <Shield className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+              <span>Suporte WhatsApp (11) 96612-9320</span>
             </div>
           </div>
         </div>

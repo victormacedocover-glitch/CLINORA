@@ -105,13 +105,13 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigate }) => {
     },
     {
       step: '02',
-      title: 'Ative a Assinatura',
-      desc: 'Realize o pagamento seguro via Mercado Pago no plano mensal Clinora Pro sem fidelidade.',
+      title: 'Realize o Pagamento Único',
+      desc: 'Escolha pagar via Pix, Cartão de Crédito (até 12x) ou Boleto Bancário sem mensalidades.',
     },
     {
       step: '03',
       title: 'Acesse e Organize',
-      desc: 'Comece a usar imediatamente a agenda, pacientes, orçamentos e financeiro da sua clínica.',
+      desc: 'Comece a usar imediatamente a agenda, pacientes, orçamentos e financeiro com acesso vitalício.',
     },
   ];
 
@@ -136,18 +136,18 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigate }) => {
       a: 'O Clinora é um sistema de gestão web completo para clínicas e consultórios odontológicos e de estética. Ele centraliza pacientes, agenda, orçamentos, financeiro, tarefas e oportunidades em um único lugar.',
     },
     {
-      q: 'Quanto custa a assinatura?',
-      a: `O Clinora possui um Plano Único, o Clinora Pro, pelo valor fixo de R$ ${CLINORA_PRO_PLAN.price.toFixed(
+      q: 'Quanto custa a licença?',
+      a: `O Clinora possui um Plano Único e Definitivo por apenas R$ ${CLINORA_PRO_PLAN.price.toFixed(
         2
-      ).replace('.', ',')} por mês. Não há taxas de adesão nem custos escondidos.`,
+      ).replace('.', ',')} (Pagamento Único). Não há mensalidades, taxas de adesão nem cobranças recorrentes.`,
     },
     {
-      q: 'Existe contrato de fidelidade?',
-      a: 'Não! Você pode cancelar sua assinatura mensal a qualquer momento sem qualquer multa ou carência.',
+      q: 'Quais as formas de pagamento aceitas?',
+      a: 'Você pode pagar via Pix (com aprovação e liberação instantânea), Cartão de Crédito em até 12x sem juros ou Boleto Bancário.',
     },
     {
-      q: 'Como funciona o pagamento?',
-      a: 'O pagamento é processado com total segurança através da API oficial do Mercado Pago (cartão de crédito ou boleto/pix recorrente segundo a modalidade escolhida).',
+      q: 'Terei acesso vitalício ao sistema?',
+      a: 'Sim! Pagando apenas uma única vez, sua clínica ganha acesso ilimitado e definitivo a todos os recursos atuais e futuras atualizações.',
     },
     {
       q: 'Meus dados e os dados dos pacientes ficam seguros?',
@@ -398,22 +398,22 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigate }) => {
         </div>
       </section>
 
-      {/* 6. PLANO SECTION (Clinora Pro — R$149,90/mês) */}
+      {/* 6. PLANO SECTION (Clinora Pro — R$149,90 Pagamento Único) */}
       <section id="plano" className="py-20 border-b border-slate-800 bg-slate-950">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center max-w-2xl mx-auto mb-16">
             <h2 className="text-xs font-bold text-teal-400 tracking-wider uppercase mb-2">
               Investimento Transparente
             </h2>
-            <p className="text-3xl font-bold text-white sm:text-4xl">Plano Único e Sem Pegadinhas</p>
+            <p className="text-3xl font-bold text-white sm:text-4xl">Pagamento Único • Sem Mensalidades</p>
             <p className="text-slate-400 mt-2 text-sm">
-              Tudo o que sua clínica precisa por um valor fixo mensal.
+              Tudo o que sua clínica precisa por um valor único definitivo.
             </p>
           </div>
 
           <div className="max-w-lg mx-auto bg-slate-900 border-2 border-teal-500 rounded-3xl p-8 shadow-2xl shadow-teal-500/10 relative overflow-hidden">
             <div className="absolute top-0 right-0 bg-teal-500 text-slate-950 text-[10px] font-extrabold uppercase px-4 py-1.5 rounded-bl-xl tracking-wider">
-              MAIS POPULAR
+              ACESSO VITALÍCIO
             </div>
 
             <div className="mb-6">
@@ -425,7 +425,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigate }) => {
               <span className="text-4xl sm:text-5xl font-extrabold text-white">
                 R$ {CLINORA_PRO_PLAN.price.toFixed(2).replace('.', ',')}
               </span>
-              <span className="text-slate-400 text-sm font-medium">/ {CLINORA_PRO_PLAN.period}</span>
+              <span className="text-teal-400 text-xs font-bold uppercase">/ {CLINORA_PRO_PLAN.period}</span>
             </div>
 
             <ul className="space-y-3 mb-8">
@@ -441,15 +441,15 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigate }) => {
 
             <button
               onClick={() => onNavigate('/cadastro')}
-              className="w-full bg-gradient-to-r from-teal-500 to-teal-600 hover:from-teal-400 hover:to-teal-500 text-white font-bold py-4 rounded-xl shadow-lg shadow-teal-500/25 transition-all text-center flex items-center justify-center gap-2"
+              className="w-full bg-gradient-to-r from-teal-500 to-teal-600 hover:from-teal-400 hover:to-teal-500 text-white font-bold py-4 rounded-xl shadow-lg shadow-teal-500/25 transition-all text-center flex items-center justify-center gap-2 cursor-pointer"
               id="plan-cta-btn"
             >
-              Assinar Clinora Pro
+              Garantir Licença Vitalícia Agora
               <ArrowRight className="w-4 h-4" />
             </button>
 
             <p className="text-[11px] text-slate-400 text-center mt-3">
-              Cobrança mensal recorrente via Mercado Pago. Cancele quando quiser.
+              Aceitamos Pix (liberação instantânea), Cartão de Crédito em até 12x e Boleto Bancário.
             </p>
           </div>
         </div>

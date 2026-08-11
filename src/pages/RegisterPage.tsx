@@ -11,6 +11,7 @@ import {
   Loader2,
   CheckCircle2,
 } from 'lucide-react';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
 
 interface RegisterPageProps {
   onNavigate: (route: string) => void;
@@ -19,6 +20,7 @@ interface RegisterPageProps {
     email: string;
     clinicName: string;
     clinicPhone: string;
+    id?: string;
   }) => void;
 }
 
@@ -29,6 +31,7 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [clinicName, setClinicName] = useState('');
   const [clinicPhone, setClinicPhone] = useState('');
 
@@ -39,7 +42,9 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
     e.preventDefault();
     setError(null);
 
-    if (!fullName || !email || !password || !clinicName || !clinicPhone) {
+    const cleanEmail = email.trim().toLowerCase();
+
+    if (!fullName || !cleanEmail || !password || !clinicName || !clinicPhone) {
       setError('Por favor, preencha todos os campos obrigatórios.');
       return;
     }
@@ -49,26 +54,102 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
       return;
     }
 
+    if (confirmPassword && password !== confirmPassword) {
+      setError('A confirmação de senha não confere com a senha digitada.');
+      return;
+    }
+
     setLoading(true);
 
     try {
-      // Simulate/Trigger account creation flow
-      // (In ETAPA 2 this will call Supabase Auth + RPC/table insert)
-      await new Promise((resolve) => setTimeout(resolve, 800));
+      let createdUserId: string | undefined = undefined;
 
-      // Save to localStorage registered users array
+      if (isSupabaseConfigured) {
+        // 1. Real Supabase Auth SignUp
+        const { data: authData, error: authErr } = await supabase.auth.signUp({
+          email: cleanEmail,
+          password: password,
+          options: {
+            data: {
+              full_name: fullName,
+              clinic_name: clinicName,
+              clinic_phone: clinicPhone,
+            },
+          },
+        });
+
+        if (authErr) {
+          throw authErr;
+        }
+
+        createdUserId = authData.user?.id;
+
+        // Ensure session is authenticated for RPC call
+        if (!authData.session && createdUserId) {
+          try {
+            const { data: signInData } = await supabase.auth.signInWithPassword({
+              email: cleanEmail,
+              password: password,
+            });
+            if (signInData.user) {
+              createdUserId = signInData.user.id;
+            }
+          } catch (sErr) {
+            console.warn('Auto sign-in during registration fallback:', sErr);
+          }
+        }
+
+        // 2. Call RPC create_initial_clinic as required
+        let clinicId: string | null = null;
+        try {
+          const { data: rpcData, error: rpcErr } = await supabase.rpc('create_initial_clinic', {
+            p_name: clinicName,
+            p_phone: clinicPhone,
+            p_email: cleanEmail,
+            p_full_name: fullName,
+          });
+
+          if (rpcErr) {
+            console.error('Erro na RPC create_initial_clinic:', rpcErr);
+          } else {
+            clinicId = typeof rpcData === 'string' ? rpcData : rpcData?.id || rpcData?.clinic_id || null;
+          }
+        } catch (rpcExecErr) {
+          console.error('Exceção ao chamar create_initial_clinic:', rpcExecErr);
+        }
+
+        // 3. Create initial access entitlement with status 'pending'
+        if (createdUserId) {
+          try {
+            await supabase.from('access_entitlements').upsert(
+              {
+                user_id: createdUserId,
+                clinic_id: clinicId || null,
+                status: 'pending',
+                access_type: 'lifetime',
+              },
+              { onConflict: 'user_id' }
+            );
+          } catch (e) {
+            console.error('Error inserting pending entitlement:', e);
+          }
+        }
+      }
+
+      // Save to local storage for offline / quick fallback session
       try {
         const stored = localStorage.getItem('clinora_registered_users');
         const existing: any[] = stored ? JSON.parse(stored) : [];
         const newUser = {
+          id: createdUserId,
           fullName,
-          email: email.trim().toLowerCase(),
+          email: cleanEmail,
           clinicName,
           clinicPhone,
           hasActiveSubscription: false,
           createdAt: new Date().toISOString(),
         };
-        const updated = [...existing.filter((u) => u.email.toLowerCase() !== email.trim().toLowerCase()), newUser];
+        const updated = [...existing.filter((u) => u.email.toLowerCase() !== cleanEmail), newUser];
         localStorage.setItem('clinora_registered_users', JSON.stringify(updated));
       } catch (err) {
         console.error('Error saving registered user locally:', err);
@@ -76,13 +157,14 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
 
       onRegisterSuccess({
         fullName,
-        email,
+        email: cleanEmail,
         clinicName,
         clinicPhone,
+        id: createdUserId,
       });
 
-      // Redirect immediately to subscription page as specified in prompt (#5)
-      onNavigate('/assinatura');
+      // Redirect immediately to checkout for payment
+      onNavigate('/checkout');
     } catch (err: any) {
       setError(err?.message || 'Erro ao realizar cadastro. Tente novamente.');
     } finally {
@@ -197,6 +279,28 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
                   placeholder="Mínimo 6 caracteres"
                   className="w-full bg-slate-900 border border-slate-800 rounded-lg pl-9 pr-3 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500 transition-colors"
                   id="register-password-input"
+                />
+              </div>
+            </div>
+
+            {/* Confirmar Senha */}
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 mb-1">
+                Confirmar Senha *
+              </label>
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-500">
+                  <Lock className="w-4 h-4" />
+                </div>
+                <input
+                  type="password"
+                  required
+                  minLength={6}
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="Repita sua senha"
+                  className="w-full bg-slate-900 border border-slate-800 rounded-lg pl-9 pr-3 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500 transition-colors"
+                  id="register-confirmpassword-input"
                 />
               </div>
             </div>

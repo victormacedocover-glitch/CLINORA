@@ -23,18 +23,48 @@ CREATE TABLE IF NOT EXISTS public.profiles (
     user_id UUID NOT NULL UNIQUE REFERENCES auth.users(id) ON DELETE CASCADE,
     clinic_id UUID REFERENCES public.clinics(id) ON DELETE CASCADE,
     full_name VARCHAR(255) NOT NULL,
+    email VARCHAR(255),
     role VARCHAR(50) NOT NULL DEFAULT 'clinic_admin' CHECK (role IN ('super_admin', 'clinic_admin', 'staff')),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- 4. TABELA DE ASSINANÇAS (subscriptions)
+-- 4. TABELA DE PAGAMENTOS (payments)
+CREATE TABLE IF NOT EXISTS public.payments (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+    clinic_id UUID REFERENCES public.clinics(id) ON DELETE CASCADE,
+    mercado_pago_payment_id VARCHAR(255),
+    preference_id VARCHAR(255),
+    amount DECIMAL(10,2) NOT NULL DEFAULT 149.90,
+    currency VARCHAR(10) NOT NULL DEFAULT 'BRL',
+    status VARCHAR(50) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected', 'cancelled', 'refunded', 'in_process')),
+    payment_method VARCHAR(100),
+    external_reference TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- 5. TABELA DE DIREITOS DE ACESSO VITALÍCIO (access_entitlements)
+CREATE TABLE IF NOT EXISTS public.access_entitlements (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+    clinic_id UUID REFERENCES public.clinics(id) ON DELETE CASCADE,
+    access_type VARCHAR(50) NOT NULL DEFAULT 'lifetime' CHECK (access_type IN ('lifetime', 'trial', 'custom')),
+    status VARCHAR(50) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'active', 'revoked', 'expired')),
+    granted_at TIMESTAMP WITH TIME ZONE,
+    payment_id UUID REFERENCES public.payments(id) ON DELETE SET NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    CONSTRAINT unique_user_access UNIQUE (user_id)
+);
+
+-- 6. TABELA DE ASSINANÇAS / PLANOS (subscriptions - legado/compatibilidade)
 CREATE TABLE IF NOT EXISTS public.subscriptions (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     clinic_id UUID NOT NULL REFERENCES public.clinics(id) ON DELETE CASCADE,
     mercadopago_subscription_id VARCHAR(255),
     status VARCHAR(50) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'active', 'cancelled', 'past_due', 'expired', 'blocked')),
-    plan VARCHAR(100) NOT NULL DEFAULT 'Clinora Pro',
+    plan VARCHAR(100) NOT NULL DEFAULT 'Clinora Pro - Vitalício',
     amount DECIMAL(10,2) NOT NULL DEFAULT 149.90,
     currency VARCHAR(10) NOT NULL DEFAULT 'BRL',
     started_at TIMESTAMP WITH TIME ZONE,
@@ -149,6 +179,8 @@ $$ LANGUAGE sql STABLE SECURITY DEFINER;
 -- ====================================================================
 ALTER TABLE public.clinics ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.payments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.access_entitlements ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.subscriptions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.patients ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.procedures ENABLE ROW LEVEL SECURITY;
@@ -168,6 +200,20 @@ USING (
 -- POLÍTICAS RLS - PROFILES
 CREATE POLICY "Usuários leem seus próprios perfis ou perfis da mesma clínica"
 ON public.profiles FOR ALL
+USING (
+  user_id = auth.uid() OR clinic_id = public.get_user_clinic_id() OR public.is_super_admin()
+);
+
+-- POLÍTICAS RLS - PAYMENTS
+CREATE POLICY "Usuários leem seus próprios pagamentos"
+ON public.payments FOR SELECT
+USING (
+  user_id = auth.uid() OR clinic_id = public.get_user_clinic_id() OR public.is_super_admin()
+);
+
+-- POLÍTICAS RLS - ACCESS ENTITLEMENTS
+CREATE POLICY "Usuários leem seus próprios direitos de acesso"
+ON public.access_entitlements FOR SELECT
 USING (
   user_id = auth.uid() OR clinic_id = public.get_user_clinic_id() OR public.is_super_admin()
 );

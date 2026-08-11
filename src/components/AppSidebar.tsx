@@ -13,6 +13,7 @@ import {
   Shield,
   LogOut,
   Sliders,
+  User,
 } from 'lucide-react';
 
 interface AppSidebarProps {
@@ -39,8 +40,9 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
     { label: 'Financeiro', route: '/financeiro', icon: DollarSign },
     { label: 'Tarefas', route: '/tarefas', icon: CheckSquare },
     { label: 'Oportunidades', route: '/oportunidades', icon: TrendingUp },
-    { label: 'Relatórios', route: '/relatorios', icon: BarChart3 },
+    { label: 'Relatorios', route: '/relatorios', icon: BarChart3 },
     { label: 'Configurações', route: '/configuracoes', icon: Settings },
+    { label: 'Meu Perfil', route: '/perfil', icon: User },
   ];
 
   return (

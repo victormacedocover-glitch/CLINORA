@@ -53,11 +53,13 @@ export interface PlanInfo {
 }
 
 export const CLINORA_PRO_PLAN: PlanInfo = {
-  name: 'Clinora Pro',
+  name: 'Clinora Pro (Acesso Vitalício)',
   price: 149.90,
-  period: 'mês',
-  description: 'A solução completa para organizar e escalar sua clínica com tranquilidade.',
+  period: 'pagamento único',
+  description: 'Licença definitiva e acesso ilimitado ao Clinora para sua clínica. Sem mensalidades!',
   features: [
+    'Pagamento Único — Acesso Vitalício',
+    'Aceitamos Pix, Cartão de Crédito e Boleto',
     'Gestão completa de Pacientes',
     'Agenda Inteligente de consultas',
     'Procedimentos e Catálogo de Preços',
@@ -66,7 +68,7 @@ export const CLINORA_PRO_PLAN: PlanInfo = {
     'Gestão de Tarefas da equipe',
     'Funil de Oportunidades (Leads & Vendas)',
     'Relatórios e Indicadores estratégicos',
-    'Suporte prioritário e backups diários',
-    'Acesso em múltiplos dispositivos',
+    'Suporte prioritário via WhatsApp',
+    'Sem mensalidades nem taxas ocultas',
   ],
 };

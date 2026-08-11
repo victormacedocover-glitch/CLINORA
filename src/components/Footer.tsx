@@ -81,16 +81,21 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
 
           {/* Contact / Plan */}
           <div>
-            <h4 className="text-white font-semibold mb-3 text-sm">Plano & Assinatura</h4>
+            <h4 className="text-white font-semibold mb-3 text-sm">Plano & Suporte</h4>
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 text-xs space-y-2">
               <span className="inline-block px-2 py-0.5 rounded bg-teal-500/20 text-teal-400 font-semibold uppercase text-[10px]">
-                Plano Único
+                Acesso Vitalício
               </span>
               <p className="font-bold text-white text-base">Clinora Pro</p>
-              <p className="text-slate-300 font-semibold">R$ 149,90 / mês</p>
-              <p className="text-[11px] text-slate-400">
-                Sem fidelidade, sem taxa de setup. Cancele quando quiser.
-              </p>
+              <p className="text-slate-300 font-semibold">R$ 149,90 <span className="text-slate-400 text-[10px] uppercase font-normal">(Pagamento Único)</span></p>
+              <a
+                href="https://wa.me/5511966129320?text=Ol%C3%A1!%20Gostaria%20de%20tirar%20d%C3%BAvidas%20sobre%20o%20Clinora."
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1.5 text-[11px] text-emerald-400 font-semibold hover:underline pt-1 block"
+              >
+                Suporte WhatsApp: (11) 96612-9320
+              </a>
             </div>
           </div>
         </div>

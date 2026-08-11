@@ -141,13 +141,13 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
 
         <div className="bg-slate-950 border border-slate-800 p-5 rounded-2xl space-y-2">
           <div className="flex justify-between items-center text-slate-400 text-xs font-semibold">
-            <span>MRR Estimado</span>
+            <span>Faturamento Licenças</span>
             <DollarSign className="w-4 h-4 text-teal-400" />
           </div>
           <p className="text-3xl font-extrabold text-white">
             R$ {estimatedMrr.toFixed(2).replace('.', ',')}
           </p>
-          <p className="text-[11px] text-teal-400">R$ 149,90 / clínica / mês</p>
+          <p className="text-[11px] text-teal-400">R$ 149,90 por licença vitalícia</p>
         </div>
 
         <div className="bg-slate-950 border border-slate-800 p-5 rounded-2xl space-y-2">
