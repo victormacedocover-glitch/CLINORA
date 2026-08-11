@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 
-const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '';
-const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || '';
+const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const MERCADOPAGO_ACCESS_TOKEN = process.env.MERCADOPAGO_ACCESS_TOKEN || '';
 const SITE_URL = process.env.SITE_URL || process.env.APP_URL || process.env.VITE_SITE_URL || 'http://localhost:3000';
 
@@ -53,6 +53,7 @@ export async function handler(event: any) {
       body: JSON.stringify({
         items: [
           {
+            id: 'clinora-pro-lifetime',
             title: 'Clinora Pro — Acesso Vitalício',
             description: `Licença Definitiva do Clinora para a clínica ${clinicName || 'Clinora Pro'}`,
             quantity: 1,
@@ -63,6 +64,11 @@ export async function handler(event: any) {
         payer: {
           email: email,
           name: fullName || 'Cliente Clinora',
+        },
+        payment_methods: {
+          excluded_payment_methods: [],
+          excluded_payment_types: [],
+          installments: 12,
         },
         back_urls: {
           success: `${cleanSiteUrl}/payment/success`,
@@ -116,7 +122,6 @@ export async function handler(event: any) {
       body: JSON.stringify({
         preferenceId: prefData.id,
         initPoint: prefData.init_point,
-        sandboxInitPoint: prefData.sandbox_init_point,
       }),
     };
   } catch (err: any) {
@@ -128,3 +133,4 @@ export async function handler(event: any) {
     };
   }
 }
+
