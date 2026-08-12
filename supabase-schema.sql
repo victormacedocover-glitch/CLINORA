@@ -255,29 +255,63 @@ ALTER TABLE public.admin_audit_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.clinic_audit_logs ENABLE ROW LEVEL SECURITY;
 
 -- POLÍTICAS RLS - CLINICS
-CREATE POLICY "Usuários acessam apenas sua própria clínica ou super admin"
-ON public.clinics FOR ALL
+DROP POLICY IF EXISTS "Usuários acessam apenas sua própria clínica ou super admin" ON public.clinics;
+DROP POLICY IF EXISTS "Permitir criacao e leitura de clinica para usuario autenticado" ON public.clinics;
+
+CREATE POLICY "Permitir leitura e atualizacao de clinica vinculada ou super admin"
+ON public.clinics FOR SELECT
+USING (
+  id = public.get_user_clinic_id() OR public.is_super_admin()
+);
+
+CREATE POLICY "Permitir insercao de clinica por usuario autenticado"
+ON public.clinics FOR INSERT
+WITH CHECK (
+  auth.uid() IS NOT NULL
+);
+
+CREATE POLICY "Permitir edicao de clinica vinculada ou super admin"
+ON public.clinics FOR UPDATE
 USING (
   id = public.get_user_clinic_id() OR public.is_super_admin()
 );
 
 -- POLÍTICAS RLS - PROFILES
-CREATE POLICY "Usuários leem seus próprios perfis ou perfis da mesma clínica"
-ON public.profiles FOR ALL
+DROP POLICY IF EXISTS "Usuários leem seus próprios perfis ou perfis da mesma clínica" ON public.profiles;
+DROP POLICY IF EXISTS "Permitir acesso completo ao perfil pelo proprio usuario ou super admin" ON public.profiles;
+
+CREATE POLICY "Permitir leitura de perfil pelo proprio usuario ou super admin"
+ON public.profiles FOR SELECT
 USING (
   user_id = auth.uid() OR clinic_id = public.get_user_clinic_id() OR public.is_super_admin()
 );
 
+CREATE POLICY "Permitir insercao e edicao de perfil pelo proprio usuario ou super admin"
+ON public.profiles FOR INSERT
+WITH CHECK (
+  user_id = auth.uid() OR public.is_super_admin()
+);
+
+CREATE POLICY "Permitir atualizacao de perfil pelo proprio usuario ou super admin"
+ON public.profiles FOR UPDATE
+USING (
+  user_id = auth.uid() OR public.is_super_admin()
+);
+
 -- POLÍTICAS RLS - PAYMENTS
-CREATE POLICY "Usuários leem seus próprios pagamentos"
-ON public.payments FOR SELECT
+DROP POLICY IF EXISTS "Usuários leem seus próprios pagamentos" ON public.payments;
+
+CREATE POLICY "Usuários leem e registram seus próprios pagamentos"
+ON public.payments FOR ALL
 USING (
   user_id = auth.uid() OR clinic_id = public.get_user_clinic_id() OR public.is_super_admin()
 );
 
 -- POLÍTICAS RLS - ACCESS ENTITLEMENTS
-CREATE POLICY "Usuários leem seus próprios direitos de acesso"
-ON public.access_entitlements FOR SELECT
+DROP POLICY IF EXISTS "Usuários leem seus próprios direitos de acesso" ON public.access_entitlements;
+
+CREATE POLICY "Usuários leem e atualizam seus próprios direitos de acesso"
+ON public.access_entitlements FOR ALL
 USING (
   user_id = auth.uid() OR clinic_id = public.get_user_clinic_id() OR public.is_super_admin()
 );

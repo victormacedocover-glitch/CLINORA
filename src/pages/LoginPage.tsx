@@ -80,7 +80,11 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         });
 
         if (authErr) {
-          setError(authErr.message || 'E-mail ou senha incorretos.');
+          if (authErr.message?.toLowerCase().includes('email not confirmed')) {
+            setError('E-mail ainda não confirmado. Caso já tenha realizado a assinatura, aguarde a liberação ou solicite a confirmação direta ao suporte.');
+          } else {
+            setError(authErr.message || 'E-mail ou senha incorretos.');
+          }
           setLoading(false);
           return;
         }

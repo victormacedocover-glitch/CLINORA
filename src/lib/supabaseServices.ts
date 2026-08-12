@@ -128,17 +128,8 @@ export async function getActiveClinicId(): Promise<string | null> {
           .maybeSingle();
 
         if (profile?.clinic_id) {
-          // Verify that this clinic_id exists in clinics table
-          const { data: cData } = await supabase
-            .from('clinics')
-            .select('id')
-            .eq('id', profile.clinic_id)
-            .maybeSingle();
-
-          if (cData?.id) {
-            cachedClinicId = { userId: user.id, clinicId: cData.id };
-            return cData.id;
-          }
+          cachedClinicId = { userId: user.id, clinicId: profile.clinic_id };
+          return profile.clinic_id;
         }
 
         // 2. Check access_entitlements table
@@ -149,28 +140,20 @@ export async function getActiveClinicId(): Promise<string | null> {
           .maybeSingle();
 
         if (ent?.clinic_id) {
-          const { data: cData } = await supabase
-            .from('clinics')
-            .select('id')
-            .eq('id', ent.clinic_id)
-            .maybeSingle();
+          // Repair profile relationship
+          await supabase.from('profiles').upsert(
+            {
+              user_id: user.id,
+              clinic_id: ent.clinic_id,
+              full_name: user.user_metadata?.full_name || user.email?.split('@')[0] || 'Usuário',
+              email: user.email || '',
+              role: 'clinic_admin',
+            },
+            { onConflict: 'user_id' }
+          );
 
-          if (cData?.id) {
-            // Repair profile relationship
-            await supabase.from('profiles').upsert(
-              {
-                user_id: user.id,
-                clinic_id: cData.id,
-                full_name: user.user_metadata?.full_name || user.email?.split('@')[0] || 'Usuário',
-                email: user.email || '',
-                role: 'clinic_admin',
-              },
-              { onConflict: 'user_id' }
-            );
-
-            cachedClinicId = { userId: user.id, clinicId: cData.id };
-            return cData.id;
-          }
+          cachedClinicId = { userId: user.id, clinicId: ent.clinic_id };
+          return ent.clinic_id;
         }
 
         // 3. Auto-heal: User is authenticated but no clinic exists in `public.clinics`.
