@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabaseServices, ProcedureItem } from '../lib/supabaseServices';
-import { Sliders, Plus, Clock, DollarSign, CheckCircle2, Trash2 } from 'lucide-react';
+import { Sliders, Plus, Clock, DollarSign, CheckCircle2, Trash2, AlertCircle } from 'lucide-react';
 import { ConfirmModal } from '../components/ConfirmModal';
 
 export function ProceduresPage() {
@@ -8,6 +8,8 @@ export function ProceduresPage() {
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [successMsg, setSuccessMsg] = useState('');
+  const [errorMsg, setErrorMsg] = useState('');
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
 
@@ -22,39 +24,64 @@ export function ProceduresPage() {
 
   const loadData = async () => {
     setLoading(true);
-    const data = await supabaseServices.getProcedures();
-    setProcedures(data);
-    setLoading(false);
+    try {
+      const data = await supabaseServices.getProcedures();
+      setProcedures(data);
+    } catch (err) {
+      console.error('Error loading procedures:', err);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name) return;
+    if (!name.trim()) return;
 
     setSaving(true);
-    await supabaseServices.createProcedure({
-      clinicId: 'c1',
-      name,
-      price: Number(price),
-      duration: Number(duration),
-      active: true,
-    });
+    setErrorMsg('');
 
-    setSaving(false);
-    setShowModal(false);
-    setName('');
-    setPrice(250);
-    setDuration(45);
-    loadData();
+    try {
+      await supabaseServices.createProcedure({
+        clinicId: '',
+        name: name.trim(),
+        price: Number(price),
+        duration: Number(duration),
+        active: true,
+      });
+
+      setSuccessMsg('Procedimento cadastrado com sucesso.');
+      setTimeout(() => setSuccessMsg(''), 4000);
+      setShowModal(false);
+      setName('');
+      setPrice(250);
+      setDuration(45);
+      await loadData();
+    } catch (err: any) {
+      console.error('Erro ao cadastrar procedimento:', err);
+      setErrorMsg(err.message || 'Não foi possível cadastrar o procedimento.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const confirmDelete = async () => {
     if (!deleteTargetId) return;
     setDeleting(true);
-    await supabaseServices.deleteProcedure(deleteTargetId);
-    setDeleting(false);
-    setDeleteTargetId(null);
-    loadData();
+    setErrorMsg('');
+
+    try {
+      await supabaseServices.deleteProcedure(deleteTargetId);
+      setDeleteTargetId(null);
+      setSuccessMsg('Procedimento excluído com sucesso.');
+      setTimeout(() => setSuccessMsg(''), 4000);
+      await loadData();
+    } catch (err: any) {
+      console.error('Erro ao excluir procedimento:', err);
+      setErrorMsg(err.message || 'Não foi possível excluir o procedimento.');
+    } finally {
+      setDeleting(false);
+    }
   };
 
   return (
@@ -70,16 +97,33 @@ export function ProceduresPage() {
           </div>
         </div>
         <button
-          onClick={() => setShowModal(true)}
-          className="flex items-center gap-2 px-4 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-semibold rounded-xl transition cursor-pointer"
+          onClick={() => {
+            setErrorMsg('');
+            setShowModal(true);
+          }}
+          className="flex items-center gap-2 px-4 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-semibold rounded-xl transition cursor-pointer text-sm"
         >
           <Plus className="w-4 h-4" />
           Novo Procedimento
         </button>
       </div>
 
+      {successMsg && (
+        <div className="p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-emerald-400 text-sm flex items-center gap-2">
+          <CheckCircle2 className="w-5 h-5 flex-shrink-0" />
+          {successMsg}
+        </div>
+      )}
+
+      {errorMsg && !showModal && (
+        <div className="p-4 bg-rose-500/10 border border-rose-500/30 rounded-xl text-rose-400 text-sm flex items-center gap-2">
+          <AlertCircle className="w-5 h-5 flex-shrink-0" />
+          {errorMsg}
+        </div>
+      )}
+
       {loading ? (
-        <div className="text-center py-12 text-slate-400">Carregando catálogo...</div>
+        <div className="text-center py-12 text-slate-400">Carregando catálogo do banco...</div>
       ) : procedures.length === 0 ? (
         <div className="text-center py-12 text-slate-500 bg-slate-800/40 border border-slate-700/60 rounded-2xl">
           Nenhum procedimento cadastrado ainda.
@@ -129,6 +173,13 @@ export function ProceduresPage() {
               <button onClick={() => setShowModal(false)} className="text-slate-400 hover:text-white">✕</button>
             </div>
 
+            {errorMsg && (
+              <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-rose-400 text-xs flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                <span>{errorMsg}</span>
+              </div>
+            )}
+
             <form onSubmit={handleCreate} className="space-y-4">
               <div>
                 <label className="block text-xs font-medium text-slate-300 mb-1">Nome do Tratamento / Procedimento *</label>
@@ -155,7 +206,7 @@ export function ProceduresPage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1">Duração Média (Minutos)</label>
+                  <label className="block text-xs font-medium text-slate-300 mb-1">Duração (Minutos)</label>
                   <input
                     type="number"
                     required
@@ -186,11 +237,12 @@ export function ProceduresPage() {
           </div>
         </div>
       )}
+
       {/* Modal - Confirmação de Exclusão */}
       <ConfirmModal
         isOpen={Boolean(deleteTargetId)}
         title="Excluir Procedimento"
-        message="Tem certeza que deseja excluir este procedimento da tabela de preços?"
+        message="Tem certeza que deseja excluir este procedimento do catálogo?"
         loading={deleting}
         onConfirm={confirmDelete}
         onClose={() => setDeleteTargetId(null)}

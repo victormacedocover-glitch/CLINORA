@@ -11,10 +11,13 @@ export function AgendaPage() {
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [showModal, setShowModal] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [successMsg, setSuccessMsg] = useState('');
+  const [errorMsg, setErrorMsg] = useState('');
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
 
   // Form
+  const [selectedPatientId, setSelectedPatientId] = useState('');
   const [patientName, setPatientName] = useState('');
   const [time, setTime] = useState('14:00');
   const [procedure, setProcedure] = useState('Limpeza e Profilaxia');
@@ -26,46 +29,83 @@ export function AgendaPage() {
 
   const loadData = async () => {
     setLoading(true);
-    const [apps, pats, procs] = await Promise.all([
-      supabaseServices.getAppointments(),
-      supabaseServices.getPatients(),
-      supabaseServices.getProcedures(),
-    ]);
-    setAppointments(apps);
-    setPatients(pats);
-    setProcedures(procs);
-    setLoading(false);
+    try {
+      const [apps, pats, procs] = await Promise.all([
+        supabaseServices.getAppointments(),
+        supabaseServices.getPatients(),
+        supabaseServices.getProcedures(),
+      ]);
+      setAppointments(apps);
+      setPatients(pats);
+      setProcedures(procs);
+    } catch (err) {
+      console.error('Error loading agenda data:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handlePatientSelectChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const val = e.target.value;
+    setSelectedPatientId(val);
+    if (val) {
+      const p = patients.find((pat) => pat.id === val);
+      if (p) setPatientName(p.name);
+    }
   };
 
   const handleCreateAppointment = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!patientName) return;
+    const finalName = patientName.trim();
+    if (!finalName) return;
 
     setSaving(true);
-    await supabaseServices.createAppointment({
-      clinicId: 'c1',
-      patientName,
-      date: selectedDate,
-      time,
-      procedure,
-      status: 'agendado',
-      notes,
-    });
+    setErrorMsg('');
 
-    setSaving(false);
-    setShowModal(false);
-    setPatientName('');
-    setNotes('');
-    loadData();
+    try {
+      await supabaseServices.createAppointment({
+        clinicId: '',
+        patientId: selectedPatientId || undefined,
+        patientName: finalName,
+        date: selectedDate,
+        time,
+        procedure,
+        status: 'agendado',
+        notes,
+      });
+
+      setSuccessMsg('Consulta agendada com sucesso!');
+      setTimeout(() => setSuccessMsg(''), 4000);
+      setShowModal(false);
+      setPatientName('');
+      setSelectedPatientId('');
+      setNotes('');
+      await loadData();
+    } catch (err: any) {
+      console.error('Erro ao agendar consulta:', err);
+      setErrorMsg(err.message || 'Não foi possível agendar a consulta. Tente novamente.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const confirmDelete = async () => {
     if (!deleteTargetId) return;
     setDeleting(true);
-    await supabaseServices.deleteAppointment(deleteTargetId);
-    setDeleting(false);
-    setDeleteTargetId(null);
-    loadData();
+    setErrorMsg('');
+
+    try {
+      await supabaseServices.deleteAppointment(deleteTargetId);
+      setDeleteTargetId(null);
+      setSuccessMsg('Agendamento removido com sucesso.');
+      setTimeout(() => setSuccessMsg(''), 4000);
+      await loadData();
+    } catch (err: any) {
+      console.error('Erro ao cancelar agendamento:', err);
+      setErrorMsg(err.message || 'Não foi possível cancelar o agendamento.');
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const dayAppointments = appointments.filter((a) => a.date === selectedDate);
@@ -84,13 +124,30 @@ export function AgendaPage() {
           </div>
         </div>
         <button
-          onClick={() => setShowModal(true)}
-          className="flex items-center gap-2 px-4 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-semibold rounded-xl transition shadow-lg shadow-emerald-500/10 cursor-pointer"
+          onClick={() => {
+            setErrorMsg('');
+            setShowModal(true);
+          }}
+          className="flex items-center gap-2 px-4 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-semibold rounded-xl transition shadow-lg shadow-emerald-500/10 cursor-pointer text-sm"
         >
           <Plus className="w-4 h-4" />
           Agendar Consulta
         </button>
       </div>
+
+      {successMsg && (
+        <div className="p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-emerald-400 text-sm flex items-center gap-2">
+          <CheckCircle2 className="w-5 h-5 flex-shrink-0" />
+          {successMsg}
+        </div>
+      )}
+
+      {errorMsg && !showModal && (
+        <div className="p-4 bg-rose-500/10 border border-rose-500/30 rounded-xl text-rose-400 text-sm flex items-center gap-2">
+          <AlertCircle className="w-5 h-5 flex-shrink-0" />
+          {errorMsg}
+        </div>
+      )}
 
       {/* Date Picker Bar */}
       <div className="flex items-center justify-between bg-slate-800/40 p-4 rounded-xl border border-slate-700/60">
@@ -111,15 +168,18 @@ export function AgendaPage() {
 
       {/* Schedule Timeline */}
       {loading ? (
-        <div className="text-center py-12 text-slate-400">Carregando consultas...</div>
+        <div className="text-center py-12 text-slate-400">Carregando consultas do banco...</div>
       ) : dayAppointments.length === 0 ? (
         <div className="bg-slate-800/30 border border-slate-700/60 rounded-2xl p-12 text-center">
           <CalendarIcon className="w-12 h-12 text-slate-500 mx-auto mb-3 opacity-60" />
           <h3 className="text-lg font-medium text-white mb-1">Nenhum agendamento nesta data</h3>
           <p className="text-slate-400 text-sm mb-4">Clique no botão acima para incluir uma nova consulta na agenda.</p>
           <button
-            onClick={() => setShowModal(true)}
-            className="px-4 py-2 bg-emerald-500 text-slate-950 font-medium rounded-xl text-sm hover:bg-emerald-600 transition"
+            onClick={() => {
+              setErrorMsg('');
+              setShowModal(true);
+            }}
+            className="px-4 py-2 bg-emerald-500 text-slate-950 font-medium rounded-xl text-sm hover:bg-emerald-600 transition cursor-pointer"
           >
             Agendar Horário
           </button>
@@ -156,8 +216,12 @@ export function AgendaPage() {
                         : app.status === 'confirmado'
                         ? 'concluido'
                         : 'agendado';
-                    await supabaseServices.updateAppointmentStatus(app.id, nextStatus);
-                    loadData();
+                    try {
+                      await supabaseServices.updateAppointmentStatus(app.id, nextStatus);
+                      await loadData();
+                    } catch (err: any) {
+                      setErrorMsg(err.message);
+                    }
                   }}
                   className={`text-xs px-3 py-1 rounded-full font-medium cursor-pointer transition ${
                     app.status === 'confirmado'
@@ -191,15 +255,36 @@ export function AgendaPage() {
               <button onClick={() => setShowModal(false)} className="text-slate-400 hover:text-white">✕</button>
             </div>
 
+            {errorMsg && (
+              <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-rose-400 text-xs flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                <span>{errorMsg}</span>
+              </div>
+            )}
+
             <form onSubmit={handleCreateAppointment} className="space-y-4">
               <div>
+                <label className="block text-xs font-medium text-slate-300 mb-1">Selecionar Paciente Cadastrado</label>
+                <select
+                  value={selectedPatientId}
+                  onChange={handlePatientSelectChange}
+                  className="w-full px-3.5 py-2 mb-2 bg-slate-900 border border-slate-700 rounded-xl text-slate-100 text-sm focus:outline-none focus:border-emerald-500"
+                >
+                  <option value="">-- Selecione ou digite manualmente abaixo --</option>
+                  {patients.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} {p.phone ? `(${p.phone})` : ''}
+                    </option>
+                  ))}
+                </select>
+
                 <label className="block text-xs font-medium text-slate-300 mb-1">Nome do Paciente *</label>
                 <input
                   type="text"
                   required
                   value={patientName}
                   onChange={(e) => setPatientName(e.target.value)}
-                  placeholder="Selecione ou digite o paciente"
+                  placeholder="Nome do paciente"
                   className="w-full px-3.5 py-2 bg-slate-900 border border-slate-700 rounded-xl text-slate-100 text-sm focus:outline-none focus:border-emerald-500"
                 />
               </div>
@@ -229,7 +314,11 @@ export function AgendaPage() {
                         </option>
                       ))
                     ) : (
-                      <option value="Consulta Geral">Consulta Geral</option>
+                      <>
+                        <option value="Consulta Geral">Consulta Geral</option>
+                        <option value="Avaliação Inicial">Avaliação Inicial</option>
+                        <option value="Limpeza e Profilaxia">Limpeza e Profilaxia</option>
+                      </>
                     )}
                   </select>
                 </div>
@@ -266,11 +355,12 @@ export function AgendaPage() {
           </div>
         </div>
       )}
+
       {/* Modal - Confirmação de Exclusão */}
       <ConfirmModal
         isOpen={Boolean(deleteTargetId)}
         title="Cancelar Agendamento"
-        message="Tem certeza que deseja cancelar e remover este agendamento da agenda?"
+        message="Tem certeza que deseja cancelar e remover este agendamento do banco de dados?"
         loading={deleting}
         onConfirm={confirmDelete}
         onClose={() => setDeleteTargetId(null)}

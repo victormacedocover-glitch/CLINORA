@@ -1,17 +1,21 @@
 import React, { useState, useEffect } from 'react';
-import { supabaseServices, Opportunity } from '../lib/supabaseServices';
-import { TrendingUp, Plus, User, DollarSign, ChevronRight, Trash2, ArrowRight } from 'lucide-react';
+import { supabaseServices, Opportunity, Patient } from '../lib/supabaseServices';
+import { TrendingUp, Plus, User, DollarSign, ChevronRight, Trash2, ArrowRight, CheckCircle2, AlertCircle } from 'lucide-react';
 import { ConfirmModal } from '../components/ConfirmModal';
 
 export function OpportunitiesPage() {
   const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
+  const [patients, setPatients] = useState<Patient[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [successMsg, setSuccessMsg] = useState('');
+  const [errorMsg, setErrorMsg] = useState('');
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
 
   // Form
+  const [selectedPatientId, setSelectedPatientId] = useState('');
   const [patientName, setPatientName] = useState('');
   const [title, setTitle] = useState('');
   const [value, setValue] = useState(5000);
@@ -22,30 +26,60 @@ export function OpportunitiesPage() {
 
   const loadData = async () => {
     setLoading(true);
-    const data = await supabaseServices.getOpportunities();
-    setOpportunities(data);
-    setLoading(false);
+    try {
+      const [opData, pData] = await Promise.all([
+        supabaseServices.getOpportunities(),
+        supabaseServices.getPatients(),
+      ]);
+      setOpportunities(opData);
+      setPatients(pData);
+    } catch (err) {
+      console.error('Error loading opportunities data:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handlePatientSelectChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const val = e.target.value;
+    setSelectedPatientId(val);
+    if (val) {
+      const p = patients.find((pat) => pat.id === val);
+      if (p) setPatientName(p.name);
+    }
   };
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title || !patientName) return;
+    const finalName = patientName.trim();
+    if (!title.trim() || !finalName) return;
 
     setSaving(true);
-    await supabaseServices.createOpportunity({
-      clinicId: 'c1',
-      patientName,
-      title,
-      status: 'novo_lead',
-      value: Number(value),
-    });
+    setErrorMsg('');
 
-    setSaving(false);
-    setShowModal(false);
-    setPatientName('');
-    setTitle('');
-    setValue(5000);
-    loadData();
+    try {
+      await supabaseServices.createOpportunity({
+        clinicId: '',
+        patientName: finalName,
+        title: title.trim(),
+        status: 'novo_lead',
+        value: Number(value),
+      });
+
+      setSuccessMsg('Oportunidade criada com sucesso.');
+      setTimeout(() => setSuccessMsg(''), 4000);
+      setShowModal(false);
+      setPatientName('');
+      setSelectedPatientId('');
+      setTitle('');
+      setValue(5000);
+      await loadData();
+    } catch (err: any) {
+      console.error('Erro ao criar oportunidade:', err);
+      setErrorMsg(err.message || 'Não foi possível registrar a oportunidade.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleNextStage = async (op: Opportunity) => {
@@ -53,18 +87,32 @@ export function OpportunitiesPage() {
     const idx = stageIds.indexOf(op.status);
     if (idx < stageIds.length - 1) {
       const nextStatus = stageIds[idx + 1] as Opportunity['status'];
-      await supabaseServices.updateOpportunityStatus(op.id, nextStatus);
-      loadData();
+      try {
+        await supabaseServices.updateOpportunityStatus(op.id, nextStatus);
+        await loadData();
+      } catch (err: any) {
+        setErrorMsg(err.message);
+      }
     }
   };
 
   const confirmDelete = async () => {
     if (!deleteTargetId) return;
     setDeleting(true);
-    await supabaseServices.deleteOpportunity(deleteTargetId);
-    setDeleting(false);
-    setDeleteTargetId(null);
-    loadData();
+    setErrorMsg('');
+
+    try {
+      await supabaseServices.deleteOpportunity(deleteTargetId);
+      setDeleteTargetId(null);
+      setSuccessMsg('Oportunidade excluída com sucesso.');
+      setTimeout(() => setSuccessMsg(''), 4000);
+      await loadData();
+    } catch (err: any) {
+      console.error('Erro ao excluir oportunidade:', err);
+      setErrorMsg(err.message || 'Não foi possível excluir a oportunidade.');
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const STAGES = [
@@ -87,16 +135,33 @@ export function OpportunitiesPage() {
           </div>
         </div>
         <button
-          onClick={() => setShowModal(true)}
-          className="flex items-center gap-2 px-4 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-semibold rounded-xl transition cursor-pointer"
+          onClick={() => {
+            setErrorMsg('');
+            setShowModal(true);
+          }}
+          className="flex items-center gap-2 px-4 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-semibold rounded-xl transition cursor-pointer text-sm"
         >
           <Plus className="w-4 h-4" />
           Nova Oportunidade
         </button>
       </div>
 
+      {successMsg && (
+        <div className="p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-emerald-400 text-sm flex items-center gap-2">
+          <CheckCircle2 className="w-5 h-5 flex-shrink-0" />
+          {successMsg}
+        </div>
+      )}
+
+      {errorMsg && !showModal && (
+        <div className="p-4 bg-rose-500/10 border border-rose-500/30 rounded-xl text-rose-400 text-sm flex items-center gap-2">
+          <AlertCircle className="w-5 h-5 flex-shrink-0" />
+          {errorMsg}
+        </div>
+      )}
+
       {loading ? (
-        <div className="text-center py-12 text-slate-400">Carregando funil de vendas...</div>
+        <div className="text-center py-12 text-slate-400">Carregando funil de vendas do banco...</div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           {STAGES.map((stage) => {
@@ -150,11 +215,6 @@ export function OpportunitiesPage() {
                       </div>
                     </div>
                   ))}
-                  {stageOps.length === 0 && (
-                    <div className="text-center py-6 text-slate-500 text-xs italic border border-dashed border-slate-700/40 rounded-xl">
-                      Nenhum paciente neste estágio
-                    </div>
-                  )}
                 </div>
               </div>
             );
@@ -167,31 +227,52 @@ export function OpportunitiesPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4">
           <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-md p-6 space-y-5 shadow-2xl">
             <div className="flex justify-between items-center pb-3 border-b border-slate-700">
-              <h2 className="text-lg font-semibold text-white">Nova Oportunidade no Funil</h2>
+              <h2 className="text-lg font-semibold text-white">Nova Oportunidade</h2>
               <button onClick={() => setShowModal(false)} className="text-slate-400 hover:text-white">✕</button>
             </div>
 
+            {errorMsg && (
+              <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-rose-400 text-xs flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                <span>{errorMsg}</span>
+              </div>
+            )}
+
             <form onSubmit={handleCreate} className="space-y-4">
               <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1">Nome do Contato / Paciente *</label>
-                <input
-                  type="text"
-                  required
-                  value={patientName}
-                  onChange={(e) => setPatientName(e.target.value)}
-                  placeholder="Ex: Dra. Juliana Fernandes"
-                  className="w-full px-3.5 py-2 bg-slate-900 border border-slate-700 rounded-xl text-slate-100 text-sm focus:outline-none focus:border-emerald-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1">Título do Interesse *</label>
+                <label className="block text-xs font-medium text-slate-300 mb-1">Título da Oportunidade *</label>
                 <input
                   type="text"
                   required
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
-                  placeholder="Ex: Harmonização Facial / Lentes de Contato"
+                  placeholder="Ex: Tratamento Ortodôntico Completo"
+                  className="w-full px-3.5 py-2 bg-slate-900 border border-slate-700 rounded-xl text-slate-100 text-sm focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-300 mb-1">Selecionar Paciente Cadastrado</label>
+                <select
+                  value={selectedPatientId}
+                  onChange={handlePatientSelectChange}
+                  className="w-full px-3.5 py-2 mb-2 bg-slate-900 border border-slate-700 rounded-xl text-slate-100 text-sm focus:outline-none focus:border-emerald-500"
+                >
+                  <option value="">-- Selecione ou digite abaixo --</option>
+                  {patients.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+
+                <label className="block text-xs font-medium text-slate-300 mb-1">Nome do Paciente / Lead *</label>
+                <input
+                  type="text"
+                  required
+                  value={patientName}
+                  onChange={(e) => setPatientName(e.target.value)}
+                  placeholder="Nome do cliente ou contato"
                   className="w-full px-3.5 py-2 bg-slate-900 border border-slate-700 rounded-xl text-slate-100 text-sm focus:outline-none focus:border-emerald-500"
                 />
               </div>
@@ -221,18 +302,19 @@ export function OpportunitiesPage() {
                   disabled={saving}
                   className="flex-1 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-semibold rounded-xl text-sm transition"
                 >
-                  {saving ? 'Registrando...' : 'Criar Oportunidade'}
+                  {saving ? 'Criando...' : 'Criar Oportunidade'}
                 </button>
               </div>
             </form>
           </div>
         </div>
       )}
+
       {/* Modal - Confirmação de Exclusão */}
       <ConfirmModal
         isOpen={Boolean(deleteTargetId)}
         title="Excluir Oportunidade"
-        message="Tem certeza que deseja excluir esta oportunidade do funil?"
+        message="Tem certeza que deseja excluir esta oportunidade do banco de dados?"
         loading={deleting}
         onConfirm={confirmDelete}
         onClose={() => setDeleteTargetId(null)}

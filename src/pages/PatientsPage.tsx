@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabaseServices, Patient } from '../lib/supabaseServices';
-import { Users, Plus, Search, Phone, Mail, Calendar, Trash2, UserPlus, CheckCircle2 } from 'lucide-react';
+import { Users, Plus, Search, Phone, Mail, Calendar, Trash2, UserPlus, CheckCircle2, Edit2, AlertCircle } from 'lucide-react';
 import { ConfirmModal } from '../components/ConfirmModal';
 
 export function PatientsPage() {
@@ -8,8 +8,10 @@ export function PatientsPage() {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [showModal, setShowModal] = useState(false);
+  const [editingPatient, setEditingPatient] = useState<Patient | null>(null);
   const [saving, setSaving] = useState(false);
   const [successMsg, setSuccessMsg] = useState('');
+  const [errorMsg, setErrorMsg] = useState('');
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
 
@@ -26,45 +28,102 @@ export function PatientsPage() {
 
   const loadPatients = async () => {
     setLoading(true);
-    const data = await supabaseServices.getPatients();
-    setPatients(data);
-    setLoading(false);
+    try {
+      const data = await supabaseServices.getPatients();
+      setPatients(data);
+    } catch (err) {
+      console.error('Error loading patients:', err);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleCreatePatient = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!name) return;
-
-    setSaving(true);
-    await supabaseServices.createPatient({
-      clinicId: 'c1',
-      name,
-      email,
-      phone,
-      birthDate,
-      notes,
-    });
-
-    setSaving(false);
-    setShowModal(false);
+  const openNewModal = () => {
+    setEditingPatient(null);
     setName('');
     setEmail('');
     setPhone('');
     setBirthDate('');
     setNotes('');
+    setErrorMsg('');
+    setShowModal(true);
+  };
 
-    setSuccessMsg('Paciente cadastrado com sucesso!');
-    setTimeout(() => setSuccessMsg(''), 4000);
-    loadPatients();
+  const openEditModal = (p: Patient) => {
+    setEditingPatient(p);
+    setName(p.name);
+    setEmail(p.email || '');
+    setPhone(p.phone || '');
+    setBirthDate(p.birthDate || '');
+    setNotes(p.notes || '');
+    setErrorMsg('');
+    setShowModal(true);
+  };
+
+  const handleSavePatient = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim()) return;
+
+    setSaving(true);
+    setErrorMsg('');
+
+    try {
+      if (editingPatient) {
+        await supabaseServices.updatePatient(editingPatient.id, {
+          name,
+          email,
+          phone,
+          birthDate,
+          notes,
+        });
+        setSuccessMsg('Paciente atualizado com sucesso.');
+      } else {
+        await supabaseServices.createPatient({
+          clinicId: '',
+          name,
+          email,
+          phone,
+          birthDate,
+          notes,
+        });
+        setSuccessMsg('Paciente cadastrado com sucesso.');
+      }
+
+      setShowModal(false);
+      setName('');
+      setEmail('');
+      setPhone('');
+      setBirthDate('');
+      setNotes('');
+      setEditingPatient(null);
+
+      setTimeout(() => setSuccessMsg(''), 4000);
+      await loadPatients();
+    } catch (err: any) {
+      console.error('Erro ao salvar paciente:', err);
+      setErrorMsg(err.message || 'Não foi possível cadastrar o paciente. Tente novamente.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const confirmDelete = async () => {
     if (!deleteTargetId) return;
     setDeleting(true);
-    await supabaseServices.deletePatient(deleteTargetId);
-    setDeleting(false);
-    setDeleteTargetId(null);
-    loadPatients();
+    setErrorMsg('');
+
+    try {
+      await supabaseServices.deletePatient(deleteTargetId);
+      setDeleteTargetId(null);
+      setSuccessMsg('Paciente excluído com sucesso.');
+      setTimeout(() => setSuccessMsg(''), 4000);
+      await loadPatients();
+    } catch (err: any) {
+      console.error('Erro ao excluir paciente:', err);
+      setErrorMsg(err.message || 'Não foi possível excluir o paciente. Tente novamente.');
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const filteredPatients = patients.filter(
@@ -90,8 +149,8 @@ export function PatientsPage() {
           </div>
         </div>
         <button
-          onClick={() => setShowModal(true)}
-          className="flex items-center gap-2 px-4 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-semibold rounded-xl transition shadow-lg shadow-emerald-500/10 cursor-pointer"
+          onClick={openNewModal}
+          className="flex items-center gap-2 px-4 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-semibold rounded-xl transition shadow-lg shadow-emerald-500/10 cursor-pointer text-sm"
         >
           <Plus className="w-4 h-4" />
           Novo Paciente
@@ -102,6 +161,13 @@ export function PatientsPage() {
         <div className="p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-emerald-400 text-sm flex items-center gap-2">
           <CheckCircle2 className="w-5 h-5 flex-shrink-0" />
           {successMsg}
+        </div>
+      )}
+
+      {errorMsg && !showModal && (
+        <div className="p-4 bg-rose-500/10 border border-rose-500/30 rounded-xl text-rose-400 text-sm flex items-center gap-2">
+          <AlertCircle className="w-5 h-5 flex-shrink-0" />
+          {errorMsg}
         </div>
       )}
 
@@ -119,7 +185,7 @@ export function PatientsPage() {
 
       {/* Patient List Grid */}
       {loading ? (
-        <div className="text-center py-12 text-slate-400">Carregando lista de pacientes...</div>
+        <div className="text-center py-12 text-slate-400">Carregando lista de pacientes do banco...</div>
       ) : filteredPatients.length === 0 ? (
         <div className="bg-slate-800/40 border border-slate-700/60 rounded-2xl p-12 text-center">
           <UserPlus className="w-12 h-12 text-slate-500 mx-auto mb-3 opacity-60" />
@@ -128,8 +194,8 @@ export function PatientsPage() {
             {searchTerm ? 'Tente buscar por outro termo' : 'Cadastre o primeiro paciente da clínica'}
           </p>
           <button
-            onClick={() => setShowModal(true)}
-            className="px-4 py-2 bg-emerald-500 text-slate-950 font-medium rounded-xl text-sm hover:bg-emerald-600 transition"
+            onClick={openNewModal}
+            className="px-4 py-2 bg-emerald-500 text-slate-950 font-medium rounded-xl text-sm hover:bg-emerald-600 transition cursor-pointer"
           >
             Cadastrar Paciente
           </button>
@@ -149,16 +215,27 @@ export function PatientsPage() {
                     </div>
                     <div>
                       <h3 className="font-semibold text-white">{patient.name}</h3>
-                      <span className="text-xs text-slate-400">Desde {new Date(patient.createdAt).toLocaleDateString('pt-BR')}</span>
+                      <span className="text-xs text-slate-400">
+                        Cadastrado em {new Date(patient.createdAt).toLocaleDateString('pt-BR')}
+                      </span>
                     </div>
                   </div>
-                  <button
-                    onClick={() => setDeleteTargetId(patient.id)}
-                    className="p-1.5 text-slate-500 hover:text-red-400 rounded-lg hover:bg-slate-700/50 transition cursor-pointer"
-                    title="Excluir paciente"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => openEditModal(patient)}
+                      className="p-1.5 text-slate-400 hover:text-emerald-400 rounded-lg hover:bg-slate-700/50 transition cursor-pointer"
+                      title="Editar paciente"
+                    >
+                      <Edit2 className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => setDeleteTargetId(patient.id)}
+                      className="p-1.5 text-slate-500 hover:text-rose-400 rounded-lg hover:bg-slate-700/50 transition cursor-pointer"
+                      title="Excluir paciente"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
 
                 <div className="space-y-1.5 text-xs text-slate-300 pt-2 border-t border-slate-700/40">
@@ -193,12 +270,14 @@ export function PatientsPage() {
         </div>
       )}
 
-      {/* Modal - Novo Paciente */}
+      {/* Modal - Novo / Editar Paciente */}
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4">
           <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-md p-6 space-y-5 shadow-2xl">
             <div className="flex justify-between items-center pb-3 border-b border-slate-700">
-              <h2 className="text-lg font-semibold text-white">Cadastrar Novo Paciente</h2>
+              <h2 className="text-lg font-semibold text-white">
+                {editingPatient ? 'Editar Paciente' : 'Cadastrar Novo Paciente'}
+              </h2>
               <button
                 onClick={() => setShowModal(false)}
                 className="text-slate-400 hover:text-white text-sm"
@@ -207,7 +286,14 @@ export function PatientsPage() {
               </button>
             </div>
 
-            <form onSubmit={handleCreatePatient} className="space-y-4">
+            {errorMsg && (
+              <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-rose-400 text-xs flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                <span>{errorMsg}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleSavePatient} className="space-y-4">
               <div>
                 <label className="block text-xs font-medium text-slate-300 mb-1">
                   Nome Completo *
@@ -279,18 +365,19 @@ export function PatientsPage() {
                   disabled={saving}
                   className="flex-1 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-semibold rounded-xl text-sm transition"
                 >
-                  {saving ? 'Salvando...' : 'Salvar Paciente'}
+                  {saving ? 'Salvando...' : editingPatient ? 'Atualizar Paciente' : 'Salvar Paciente'}
                 </button>
               </div>
             </form>
           </div>
         </div>
       )}
+
       {/* Modal - Confirmação de Exclusão */}
       <ConfirmModal
         isOpen={Boolean(deleteTargetId)}
         title="Excluir Paciente"
-        message="Tem certeza que deseja excluir este paciente do sistema? Esta ação removerá os dados do cadastro."
+        message="Tem certeza que deseja excluir este paciente do sistema? Esta ação removerá os dados do cadastro no banco de dados."
         loading={deleting}
         onConfirm={confirmDelete}
         onClose={() => setDeleteTargetId(null)}

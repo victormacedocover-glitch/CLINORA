@@ -169,8 +169,19 @@ CREATE TABLE IF NOT EXISTS public.admin_audit_logs (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- 13. TABELA DE LOGS DE AUDITORIA DA CLÍNICA (clinic_audit_logs)
+CREATE TABLE IF NOT EXISTS public.clinic_audit_logs (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    clinic_id UUID NOT NULL REFERENCES public.clinics(id) ON DELETE CASCADE,
+    user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+    user_name VARCHAR(255),
+    action VARCHAR(255) NOT NULL,
+    details TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
 -- ====================================================================
--- HELPER FUNCTION PARA AUXILIAR NO ISOLAMENTO RLS
+-- HELPER FUNCTION PARA AUXILIAR NO ISOLAMENTO RLS E CRIAÇÃO DE CLÍNICA
 -- ====================================================================
 CREATE OR REPLACE FUNCTION public.get_user_clinic_id()
 RETURNS UUID AS $$
@@ -184,6 +195,46 @@ RETURNS BOOLEAN AS $$
     WHERE user_id = auth.uid() AND role = 'super_admin'
   );
 $$ LANGUAGE sql STABLE SECURITY DEFINER;
+
+CREATE OR REPLACE FUNCTION public.create_initial_clinic(
+  p_name VARCHAR(255),
+  p_phone VARCHAR(50),
+  p_email VARCHAR(255),
+  p_full_name VARCHAR(255)
+)
+RETURNS UUID AS $$
+DECLARE
+  v_clinic_id UUID;
+  v_user_id UUID;
+BEGIN
+  v_user_id := auth.uid();
+  IF v_user_id IS NULL THEN
+    RAISE EXCEPTION 'Usuário não autenticado';
+  END IF;
+
+  -- Criar clínica
+  INSERT INTO public.clinics (name, phone, email, status)
+  VALUES (p_name, p_phone, p_email, 'active')
+  RETURNING id INTO v_clinic_id;
+
+  -- Criar ou atualizar perfil do usuário como clinic_admin
+  INSERT INTO public.profiles (user_id, clinic_id, full_name, email, role)
+  VALUES (v_user_id, v_clinic_id, p_full_name, p_email, 'clinic_admin')
+  ON CONFLICT (user_id) DO UPDATE
+  SET clinic_id = EXCLUDED.clinic_id,
+      full_name = EXCLUDED.full_name,
+      updated_at = NOW();
+
+  -- Criar entitlement pendente
+  INSERT INTO public.access_entitlements (user_id, clinic_id, access_type, status)
+  VALUES (v_user_id, v_clinic_id, 'lifetime', 'pending')
+  ON CONFLICT (user_id) DO UPDATE
+  SET clinic_id = EXCLUDED.clinic_id,
+      updated_at = NOW();
+
+  RETURN v_clinic_id;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- ====================================================================
 -- ATIVANDO ROW LEVEL SECURITY (RLS) EM TODAS AS TABELAS
@@ -201,6 +252,7 @@ ALTER TABLE public.transactions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.tasks ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.opportunities ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.admin_audit_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.clinic_audit_logs ENABLE ROW LEVEL SECURITY;
 
 -- POLÍTICAS RLS - CLINICS
 CREATE POLICY "Usuários acessam apenas sua própria clínica ou super admin"
@@ -257,4 +309,7 @@ CREATE POLICY "RLS Tasks Isolamento Por Clínica" ON public.tasks FOR ALL
 USING (clinic_id = public.get_user_clinic_id() OR public.is_super_admin());
 
 CREATE POLICY "RLS Opportunities Isolamento Por Clínica" ON public.opportunities FOR ALL
+USING (clinic_id = public.get_user_clinic_id() OR public.is_super_admin());
+
+CREATE POLICY "RLS Clinic Audit Logs Isolamento Por Clínica" ON public.clinic_audit_logs FOR ALL
 USING (clinic_id = public.get_user_clinic_id() OR public.is_super_admin());

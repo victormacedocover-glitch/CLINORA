@@ -33,26 +33,62 @@ import {
   Layers,
   CreditCard,
   History,
+  CheckSquare,
+  ShieldAlert,
 } from 'lucide-react';
-import { supabase, isSupabaseConfigured } from '../lib/supabase';
+import { supabase } from '../lib/supabase';
 
 interface AdminPageProps {
   onNavigate: (route: string) => void;
+  currentUser?: {
+    id?: string;
+    email?: string;
+    role?: string;
+  } | null;
 }
 
-export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
+export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate, currentUser }) => {
   const [usersList, setUsersList] = useState<any[]>([]);
+  const [clinicsList, setClinicsList] = useState<any[]>([]);
+  const [paymentsList, setPaymentsList] = useState<any[]>([]);
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
+  const [stats, setStats] = useState<{
+    totalClinics: number;
+    totalUsers: number;
+    activeUsers: number;
+    pendingUsers: number;
+    blockedUsers: number;
+    approvedPayments: number;
+    totalRevenue: number;
+    activeSubscriptions: number;
+  }>({
+    totalClinics: 0,
+    totalUsers: 0,
+    activeUsers: 0,
+    pendingUsers: 0,
+    blockedUsers: 0,
+    approvedPayments: 0,
+    totalRevenue: 0,
+    activeSubscriptions: 0,
+  });
+
   const [loading, setLoading] = useState<boolean>(true);
   const [refreshing, setRefreshing] = useState<boolean>(false);
+  const [accessDenied, setAccessDenied] = useState<boolean>(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // Search and Filters
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [accessFilter, setAccessFilter] = useState<string>('all');
   const [subscriptionFilter, setSubscriptionFilter] = useState<string>('all');
-  const [activeTab, setActiveTab] = useState<'users' | 'audit'>('users');
+  const [planFilter, setPlanFilter] = useState<string>('all');
 
-  // Modal State
+  // Navigation Tabs in Super Admin
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'users' | 'clinics' | 'payments' | 'audit'>('dashboard');
+
+  // Manage Modal State
   const [selectedUser, setSelectedUser] = useState<any | null>(null);
-  const [modalTab, setModalTab] = useState<'overview' | 'access' | 'credentials' | 'plan' | 'audit'>('overview');
+  const [modalTab, setModalTab] = useState<'overview' | 'access' | 'credentials' | 'plan'>('overview');
 
   // Credential Edit State
   const [newPassword, setNewPassword] = useState<string>('');
@@ -67,15 +103,15 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
   const [editClinicName, setEditClinicName] = useState<string>('');
   const [infoSaving, setInfoSaving] = useState<boolean>(false);
 
-  // Toast State
+  // Toast Notification State
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
-  // Confirmation Modal State
+  // Confirmation Modals State
   const [confirmModal, setConfirmModal] = useState<{
     isOpen: boolean;
     title: string;
     message: string;
-    actionType: 'activate' | 'pending' | 'block' | 'unblock';
+    actionType: 'activate' | 'pending' | 'block' | 'unblock' | 'manual_release';
     targetUser: any | null;
   }>({
     isOpen: false,
@@ -85,8 +121,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
     targetUser: null,
   });
 
-  // Current admin email
-  const currentAdminEmail = 'victorbeirigo76@gmail.com';
+  const adminEmail = currentUser?.email || 'victorbeirigo76@gmail.com';
 
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
     setToast({ message, type });
@@ -95,97 +130,75 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
     }, 4000);
   };
 
-  // Fetch administrative data
+  // Fetch real administrative data from backend Netlify function
   const fetchData = async () => {
     setLoading(true);
+    setAccessDenied(false);
+    setErrorMessage(null);
+
     try {
       const response = await fetch('/.netlify/functions/admin-user-management', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'fetch_all_data',
-          adminEmail: currentAdminEmail,
+          adminEmail: adminEmail,
         }),
       });
 
+      const data = await response.json();
+
+      if (response.status === 403) {
+        setAccessDenied(true);
+        setErrorMessage(data.error || 'Acesso negado. Apenas o Super Admin tem permissão.');
+        setLoading(false);
+        setRefreshing(false);
+        return;
+      }
+
       if (response.ok) {
-        const data = await response.json();
-        if (data.usersList && data.usersList.length > 0) {
-          setUsersList(data.usersList);
+        setUsersList(data.usersList || []);
+        setClinicsList(data.clinicsList || []);
+        setPaymentsList(data.paymentsList || []);
+        setAuditLogs(data.auditLogs || []);
+
+        if (data.stats) {
+          setStats(data.stats);
         } else {
-          // Fallback mock data if database is empty
-          loadFallbackData();
-        }
-        if (data.auditLogs) {
-          setAuditLogs(data.auditLogs);
+          // Derive stats dynamically from arrays
+          const users = data.usersList || [];
+          const pays = data.paymentsList || [];
+          const appPays = pays.filter((p: any) => p.status === 'approved');
+          const revenue = appPays.reduce((acc: number, p: any) => acc + (p.amount || 0), 0);
+
+          setStats({
+            totalClinics: (data.clinicsList || []).length,
+            totalUsers: users.length,
+            activeUsers: users.filter((u: any) => u.accessStatus === 'active').length,
+            pendingUsers: users.filter((u: any) => u.accessStatus === 'pending').length,
+            blockedUsers: users.filter((u: any) => u.accessStatus === 'blocked').length,
+            approvedPayments: appPays.length,
+            totalRevenue: revenue,
+            activeSubscriptions: users.filter((u: any) => u.accessStatus === 'active' || u.subscriptionStatus === 'approved').length,
+          });
         }
       } else {
-        loadFallbackData();
+        setErrorMessage(data.error || 'Erro ao carregar dados do banco de dados.');
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error fetching admin data:', err);
-      loadFallbackData();
+      setErrorMessage('Erro de conexão ao comunicar com o servidor administrativo.');
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
   };
 
-  const loadFallbackData = () => {
-    setUsersList([
-      {
-        id: '1',
-        userId: 'u1',
-        clinicId: 'c1',
-        clinicName: 'Clínica Odontológica Silva',
-        owner: 'Dra. Juliana Silva',
-        email: 'juliana@clinicasilva.com.br',
-        phone: '(11) 99999-8888',
-        accessStatus: 'active',
-        subscriptionStatus: 'active',
-        plan: 'Clinora Pro - Vitalício',
-        amount: 149.9,
-        createdAt: '01/08/2026',
-        lastSignInAt: '12/08/2026 10:15',
-      },
-      {
-        id: '2',
-        userId: 'u2',
-        clinicId: 'c2',
-        clinicName: 'Estética Avançada Belle',
-        owner: 'Dra. Patricia Lima',
-        email: 'contato@belleestetica.com',
-        phone: '(21) 98888-7777',
-        accessStatus: 'pending',
-        subscriptionStatus: 'pending',
-        plan: 'Clinora Pro - Vitalício',
-        amount: 149.9,
-        createdAt: '08/08/2026',
-        lastSignInAt: '08/08/2026 14:20',
-      },
-      {
-        id: '3',
-        userId: 'u3',
-        clinicId: 'c3',
-        clinicName: 'Consultório Dr. Roberto',
-        owner: 'Dr. Roberto Santos',
-        email: 'roberto@consultorio.med.br',
-        phone: '(31) 97777-6666',
-        accessStatus: 'blocked',
-        subscriptionStatus: 'cancelled',
-        plan: 'Clinora Pro - Vitalício',
-        amount: 149.9,
-        createdAt: '15/07/2026',
-        lastSignInAt: '20/07/2026 09:30',
-      },
-    ]);
-  };
-
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [adminEmail]);
 
-  // Update Access Status Handler
+  // Update Access Status Handler (Ativar, Pendente, Bloquear, Desbloquear)
   const handleUpdateAccessStatus = async (user: any, newStatus: 'active' | 'pending' | 'blocked') => {
     try {
       const response = await fetch('/.netlify/functions/admin-user-management', {
@@ -197,22 +210,15 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
           clinicId: user.clinicId,
           targetEmail: user.email,
           newStatus,
-          adminEmail: currentAdminEmail,
+          adminEmail: adminEmail,
         }),
       });
 
       const data = await response.json();
 
       if (response.ok && data.success) {
-        // Update local state
-        setUsersList((prev) =>
-          prev.map((u) => {
-            if (u.id === user.id || u.userId === user.userId || u.email === user.email) {
-              return { ...u, accessStatus: newStatus };
-            }
-            return u;
-          })
-        );
+        // Refresh full data from backend to ensure state consistency
+        fetchData();
 
         if (selectedUser && (selectedUser.id === user.id || selectedUser.email === user.email)) {
           setSelectedUser((prev: any) => ({ ...prev, accessStatus: newStatus }));
@@ -225,16 +231,6 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
         };
 
         showToast(messages[newStatus] || 'Status atualizado com sucesso!', 'success');
-
-        // Add to audit logs locally
-        const newLog = {
-          id: Math.random().toString(),
-          admin_email: currentAdminEmail,
-          action: `Acesso alterado para ${newStatus.toUpperCase()}`,
-          details: `Acesso da clínica ${user.clinicName} (${user.owner}) alterado para ${newStatus}`,
-          created_at: new Date().toISOString(),
-        };
-        setAuditLogs((prev) => [newLog, ...prev]);
       } else {
         showToast(data.error || 'Erro ao atualizar status de acesso.', 'error');
       }
@@ -243,7 +239,38 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
     }
   };
 
-  // Password Reset Handler
+  // Release Manual Access Handler (Pagamento Aprovado mas Acesso Pendente)
+  const handleReleaseManualAccess = async (user: any) => {
+    try {
+      const response = await fetch('/.netlify/functions/admin-user-management', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'release_manual_access',
+          userId: user.userId,
+          clinicId: user.clinicId,
+          targetEmail: user.email,
+          adminEmail: adminEmail,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.success) {
+        fetchData();
+        if (selectedUser) {
+          setSelectedUser((prev: any) => ({ ...prev, accessStatus: 'active' }));
+        }
+        showToast('✓ Acesso ativado e liberado com sucesso!', 'success');
+      } else {
+        showToast(data.error || 'Erro ao liberar acesso do usuário.', 'error');
+      }
+    } catch (err: any) {
+      showToast(err?.message || 'Erro de conexão.', 'error');
+    }
+  };
+
+  // Password Reset Handler (Official Supabase Auth Admin API)
   const handleResetPassword = async (e: React.FormEvent) => {
     e.preventDefault();
     setCredMessage(null);
@@ -271,7 +298,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
           userId: selectedUser.userId,
           targetEmail: selectedUser.email,
           newPassword: newPassword,
-          adminEmail: currentAdminEmail,
+          adminEmail: adminEmail,
         }),
       });
 
@@ -281,7 +308,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
         setCredMessage({ text: '✓ Senha redefinida com sucesso!', type: 'success' });
         setNewPassword('');
         setConfirmPassword('');
-        showToast('✓ Senha do usuário alterada com sucesso.', 'success');
+        showToast('✓ Senha do usuário redefinida com sucesso.', 'success');
       } else {
         setCredMessage({ text: data.error || 'Erro ao redefinir senha.', type: 'error' });
       }
@@ -292,7 +319,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
     }
   };
 
-  // User Info Save Handler
+  // User Info Edit Handler
   const handleSaveUserInfo = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedUser) return;
@@ -310,28 +337,14 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
           email: editEmail,
           phone: editPhone,
           clinicName: editClinicName,
-          adminEmail: currentAdminEmail,
+          adminEmail: adminEmail,
         }),
       });
 
       const data = await response.json();
 
       if (response.ok && data.success) {
-        // Update state
-        setUsersList((prev) =>
-          prev.map((u) => {
-            if (u.id === selectedUser.id) {
-              return {
-                ...u,
-                owner: editOwner,
-                email: editEmail,
-                phone: editPhone,
-                clinicName: editClinicName,
-              };
-            }
-            return u;
-          })
-        );
+        fetchData();
         setSelectedUser((prev: any) => ({
           ...prev,
           owner: editOwner,
@@ -339,9 +352,9 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
           phone: editPhone,
           clinicName: editClinicName,
         }));
-        showToast('✓ Dados cadastrais salvos com sucesso!', 'success');
+        showToast('Dados atualizados com sucesso.', 'success');
       } else {
-        showToast(data.error || 'Erro ao salvar dados.', 'error');
+        showToast(data.error || 'Erro ao salvar dados do usuário.', 'error');
       }
     } catch (err: any) {
       showToast(err?.message || 'Erro ao atualizar dados.', 'error');
@@ -359,24 +372,31 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
       (u.email || '').toLowerCase().includes(searchLower) ||
       (u.phone || '').toLowerCase().includes(searchLower);
 
-    const matchesAccess =
-      accessFilter === 'all' || u.accessStatus === accessFilter;
+    const matchesAccess = accessFilter === 'all' || u.accessStatus === accessFilter;
 
     const matchesSubscription =
       subscriptionFilter === 'all' || u.subscriptionStatus === subscriptionFilter;
 
-    return matchesSearch && matchesAccess && matchesSubscription;
+    const matchesPlan = planFilter === 'all' || (u.plan || '').includes(planFilter);
+
+    return matchesSearch && matchesAccess && matchesSubscription && matchesPlan;
   });
 
-  // Calculate Real Dynamic Metrics
-  const totalClinics = usersList.length;
-  const activeUsers = usersList.filter((u) => u.accessStatus === 'active').length;
-  const pendingUsers = usersList.filter((u) => u.accessStatus === 'pending').length;
-  const blockedUsers = usersList.filter((u) => u.accessStatus === 'blocked').length;
-  const activeSubscriptions = usersList.filter((u) => u.subscriptionStatus === 'active').length;
-  const totalRevenue = activeSubscriptions * 149.9;
+  // Filtered Payments List
+  const filteredPayments = paymentsList.filter((p) => {
+    const searchLower = searchTerm.toLowerCase();
+    const matchesSearch =
+      (p.clientName || '').toLowerCase().includes(searchLower) ||
+      (p.clinicName || '').toLowerCase().includes(searchLower) ||
+      (p.email || '').toLowerCase().includes(searchLower) ||
+      (p.transactionId || '').toLowerCase().includes(searchLower);
 
-  // Open "Gerenciar" Modal
+    const matchesStatus = subscriptionFilter === 'all' || p.status === subscriptionFilter;
+
+    return matchesSearch && matchesStatus;
+  });
+
+  // Open Manage Modal
   const openManageModal = (user: any) => {
     setSelectedUser(user);
     setEditOwner(user.owner || '');
@@ -390,19 +410,24 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
   };
 
   // Quick Action Confirmation Trigger
-  const triggerQuickAction = (user: any, actionType: 'activate' | 'pending' | 'block' | 'unblock') => {
+  const triggerActionModal = (
+    user: any,
+    actionType: 'activate' | 'pending' | 'block' | 'unblock' | 'manual_release'
+  ) => {
     const titles = {
       activate: 'Liberar Acesso Vitalício',
-      pending: 'Colocar em Pendente',
+      pending: 'Colocar Acesso em Pendente',
       block: 'Bloquear Acesso da Clínica',
       unblock: 'Desbloquear Acesso da Clínica',
+      manual_release: 'Liberar Acesso Manualmente (Pagamento Aprovado)',
     };
 
     const messages = {
-      activate: `Tem certeza que deseja liberar o acesso completo do Clinora para "${user.clinicName}"?`,
+      activate: `Tem certeza que deseja liberar o acesso do Clinora para "${user.clinicName}" (${user.owner})?`,
       pending: `Deseja colocar o acesso de "${user.clinicName}" como pendente?`,
-      block: `Tem certeza que deseja bloquear o acesso de "${user.clinicName}"? Os dados da clínica NÃO serão apagados.`,
+      block: `Tem certeza que deseja bloquear o acesso de "${user.clinicName}"? O login será suspenso.`,
       unblock: `Tem certeza que deseja desbloquear o acesso de "${user.clinicName}"? O login será restaurado.`,
+      manual_release: `Pagamento aprovado encontrado. Deseja liberar o acesso deste usuário (${user.owner})?`,
     };
 
     setConfirmModal({
@@ -417,15 +442,18 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
   const handleExecuteConfirmAction = () => {
     if (!confirmModal.targetUser) return;
 
-    const targetStatusMap: Record<string, 'active' | 'pending' | 'blocked'> = {
-      activate: 'active',
-      pending: 'pending',
-      block: 'blocked',
-      unblock: 'active',
-    };
-
-    const newStatus = targetStatusMap[confirmModal.actionType];
-    handleUpdateAccessStatus(confirmModal.targetUser, newStatus);
+    if (confirmModal.actionType === 'manual_release') {
+      handleReleaseManualAccess(confirmModal.targetUser);
+    } else {
+      const targetStatusMap: Record<string, 'active' | 'pending' | 'blocked'> = {
+        activate: 'active',
+        pending: 'pending',
+        block: 'blocked',
+        unblock: 'active',
+      };
+      const newStatus = targetStatusMap[confirmModal.actionType];
+      handleUpdateAccessStatus(confirmModal.targetUser, newStatus);
+    }
 
     setConfirmModal({
       isOpen: false,
@@ -436,12 +464,40 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
     });
   };
 
+  // Access Denied Screen for non-superadmin users
+  if (accessDenied) {
+    return (
+      <div className="min-h-screen bg-slate-900 text-slate-100 flex items-center justify-center p-4">
+        <div className="max-w-md w-full bg-slate-950 border-2 border-red-500/40 p-8 rounded-3xl text-center space-y-6 shadow-2xl">
+          <div className="w-16 h-16 rounded-2xl bg-red-500/20 text-red-400 border border-red-500/30 flex items-center justify-center mx-auto shadow-lg shadow-red-500/20">
+            <ShieldAlert className="w-8 h-8" />
+          </div>
+
+          <div className="space-y-2">
+            <h1 className="text-2xl font-black text-white">Acesso negado.</h1>
+            <p className="text-xs text-slate-300 leading-relaxed">
+              Você não possui autorização para acessar o Painel Super Admin do Clinora. Esta área é restrita aos administradores autorizados do sistema.
+            </p>
+          </div>
+
+          <button
+            onClick={() => onNavigate('/dashboard')}
+            className="w-full bg-slate-800 hover:bg-slate-700 text-white font-bold py-3 px-4 rounded-xl text-xs flex items-center justify-center gap-2 transition-colors border border-slate-700"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            Voltar para o Sistema
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-900 text-slate-100 p-4 sm:p-6 lg:p-8 space-y-8">
       {/* Toast Feedback */}
       {toast && (
         <div
-          className={`fixed top-5 right-5 z-50 px-4 py-3 rounded-xl shadow-2xl border flex items-center gap-3 transition-all transform translate-y-0 ${
+          className={`fixed top-5 right-5 z-50 px-4 py-3 rounded-xl shadow-2xl border flex items-center gap-3 transition-all ${
             toast.type === 'success'
               ? 'bg-emerald-950 border-emerald-500/50 text-emerald-200'
               : 'bg-red-950 border-red-500/50 text-red-200'
@@ -456,21 +512,21 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
         </div>
       )}
 
-      {/* Top Bar */}
+      {/* Top Header Bar */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-slate-950 border border-purple-500/30 p-6 rounded-2xl shadow-xl">
         <div className="flex items-center gap-4">
-          <div className="w-12 h-12 rounded-xl bg-purple-500/20 text-purple-400 border border-purple-500/30 flex items-center justify-center shrink-0">
+          <div className="w-12 h-12 rounded-2xl bg-purple-500/20 text-purple-400 border border-purple-500/30 flex items-center justify-center shrink-0">
             <Shield className="w-6 h-6" />
           </div>
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-2xl font-extrabold text-white">Painel Super Admin</h1>
-              <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30">
+              <span className="text-[10px] font-extrabold uppercase px-2.5 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30">
                 SaaS Admin
               </span>
             </div>
             <p className="text-xs text-slate-400 mt-0.5">
-              Gestão global de clínicas, assinaturas e faturamento recorrente (MRR).
+              Administração central de clínicas, usuários, pagamentos reais e credenciais.
             </p>
           </div>
         </div>
@@ -482,7 +538,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
               fetchData();
             }}
             disabled={refreshing}
-            className="bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs px-3.5 py-2.5 rounded-xl border border-slate-700 flex items-center gap-2 transition-colors"
+            className="bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs px-3.5 py-2.5 rounded-xl border border-slate-700 flex items-center gap-2 transition-colors cursor-pointer"
             title="Atualizar dados do banco"
           >
             <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin text-purple-400' : ''}`} />
@@ -490,45 +546,55 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
           </button>
 
           <button
-            onClick={() => onNavigate('/')}
-            className="bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs px-4 py-2.5 rounded-xl border border-slate-700 flex items-center gap-2 transition-colors"
+            onClick={() => onNavigate('/dashboard')}
+            className="bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs px-4 py-2.5 rounded-xl border border-slate-700 flex items-center gap-2 transition-colors cursor-pointer"
           >
             <ArrowLeft className="w-4 h-4" />
-            Voltar para Site
+            Voltar ao App
           </button>
         </div>
       </div>
 
-      {/* Metrics Row (Dynamic Real Values) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-4">
+      {/* Real Indicators Row (Calculated from DB) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8 gap-3">
         {/* Total Clínicas */}
         <div className="bg-slate-950 border border-slate-800 p-4 rounded-2xl space-y-1">
           <div className="flex justify-between items-center text-slate-400 text-xs font-semibold">
-            <span>Total Clínicas</span>
+            <span>Clínicas</span>
             <Building2 className="w-4 h-4 text-purple-400" />
           </div>
-          <p className="text-2xl font-extrabold text-white">{totalClinics}</p>
-          <p className="text-[10px] text-slate-400">Cadastradas</p>
+          <p className="text-2xl font-extrabold text-white">{stats.totalClinics}</p>
+          <p className="text-[10px] text-slate-500">Cadastradas</p>
+        </div>
+
+        {/* Usuários Registrados */}
+        <div className="bg-slate-950 border border-slate-800 p-4 rounded-2xl space-y-1">
+          <div className="flex justify-between items-center text-slate-400 text-xs font-semibold">
+            <span>Usuários</span>
+            <Users className="w-4 h-4 text-purple-400" />
+          </div>
+          <p className="text-2xl font-extrabold text-white">{stats.totalUsers}</p>
+          <p className="text-[10px] text-slate-500">Registrados</p>
         </div>
 
         {/* Usuários Ativos */}
         <div className="bg-slate-950 border border-emerald-500/20 p-4 rounded-2xl space-y-1">
           <div className="flex justify-between items-center text-emerald-400 text-xs font-semibold">
-            <span>Acesso Ativo</span>
+            <span>Ativos</span>
             <UserCheck className="w-4 h-4 text-emerald-400" />
           </div>
-          <p className="text-2xl font-extrabold text-emerald-400">{activeUsers}</p>
+          <p className="text-2xl font-extrabold text-emerald-400">{stats.activeUsers}</p>
           <p className="text-[10px] text-emerald-500/70">Acesso liberado</p>
         </div>
 
         {/* Usuários Pendentes */}
         <div className="bg-slate-950 border border-amber-500/20 p-4 rounded-2xl space-y-1">
           <div className="flex justify-between items-center text-amber-400 text-xs font-semibold">
-            <span>Acesso Pendente</span>
+            <span>Pendentes</span>
             <Clock className="w-4 h-4 text-amber-400" />
           </div>
-          <p className="text-2xl font-extrabold text-amber-400">{pendingUsers}</p>
-          <p className="text-[10px] text-amber-500/70">Aguardando pagamento</p>
+          <p className="text-2xl font-extrabold text-amber-400">{stats.pendingUsers}</p>
+          <p className="text-[10px] text-amber-500/70">Aguardando pgt</p>
         </div>
 
         {/* Usuários Bloqueados */}
@@ -537,114 +603,224 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
             <span>Bloqueados</span>
             <UserX className="w-4 h-4 text-red-400" />
           </div>
-          <p className="text-2xl font-extrabold text-red-400">{blockedUsers}</p>
+          <p className="text-2xl font-extrabold text-red-400">{stats.blockedUsers}</p>
           <p className="text-[10px] text-red-500/70">Suspensos</p>
         </div>
 
-        {/* Assinaturas Ativas */}
-        <div className="bg-slate-950 border border-slate-800 p-4 rounded-2xl space-y-1">
-          <div className="flex justify-between items-center text-slate-400 text-xs font-semibold">
-            <span>Assinaturas</span>
+        {/* Pagamentos Aprovados */}
+        <div className="bg-slate-950 border border-teal-500/20 p-4 rounded-2xl space-y-1">
+          <div className="flex justify-between items-center text-teal-400 text-xs font-semibold">
+            <span>Pgts MP</span>
             <CheckCircle2 className="w-4 h-4 text-teal-400" />
           </div>
-          <p className="text-2xl font-extrabold text-teal-400">{activeSubscriptions}</p>
-          <p className="text-[10px] text-slate-400">Pagas no Mercado Pago</p>
+          <p className="text-2xl font-extrabold text-teal-400">{stats.approvedPayments}</p>
+          <p className="text-[10px] text-teal-500/70">Aprovados</p>
         </div>
 
-        {/* Faturamento Licenças */}
+        {/* Faturamento Total */}
         <div className="bg-slate-950 border border-slate-800 p-4 rounded-2xl space-y-1 col-span-1 sm:col-span-2 xl:col-span-2">
           <div className="flex justify-between items-center text-slate-400 text-xs font-semibold">
-            <span>Faturamento Licenças</span>
-            <DollarSign className="w-4 h-4 text-teal-400" />
+            <span>Faturamento Real</span>
+            <DollarSign className="w-4 h-4 text-emerald-400" />
           </div>
-          <p className="text-2xl font-extrabold text-white">
-            R$ {totalRevenue.toFixed(2).replace('.', ',')}
+          <p className="text-2xl font-black text-white">
+            R$ {stats.totalRevenue.toFixed(2).replace('.', ',')}
           </p>
-          <p className="text-[10px] text-teal-400">R$ 149,90 por licença vitalícia</p>
+          <p className="text-[10px] text-emerald-400">Somatório de pagamentos reais aprovados</p>
         </div>
       </div>
 
-      {/* Main Container */}
+      {/* Main Container Tabs */}
       <div className="bg-slate-950 border border-slate-800 rounded-2xl p-6 space-y-6">
-        {/* Header Tabs & Actions */}
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-slate-800 pb-4">
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => setActiveTab('users')}
-              className={`px-4 py-2 rounded-xl font-bold text-xs flex items-center gap-2 transition-all ${
-                activeTab === 'users'
-                  ? 'bg-purple-600 text-white shadow-lg shadow-purple-600/20'
-                  : 'bg-slate-900 text-slate-400 hover:text-white border border-slate-800'
-              }`}
-            >
-              <Building2 className="w-4 h-4" />
-              Lista de Clínicas do Clinora ({filteredUsers.length})
-            </button>
+        {/* Navigation Tabs Header */}
+        <div className="flex flex-wrap items-center gap-2 border-b border-slate-800 pb-4">
+          <button
+            onClick={() => setActiveTab('dashboard')}
+            className={`px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 transition-all cursor-pointer ${
+              activeTab === 'dashboard'
+                ? 'bg-purple-600 text-white shadow-lg shadow-purple-600/20'
+                : 'bg-slate-900 text-slate-400 hover:text-white border border-slate-800'
+            }`}
+          >
+            <Layers className="w-4 h-4" />
+            Visão Geral
+          </button>
 
-            <button
-              onClick={() => setActiveTab('audit')}
-              className={`px-4 py-2 rounded-xl font-bold text-xs flex items-center gap-2 transition-all ${
-                activeTab === 'audit'
-                  ? 'bg-purple-600 text-white shadow-lg shadow-purple-600/20'
-                  : 'bg-slate-900 text-slate-400 hover:text-white border border-slate-800'
-              }`}
-            >
-              <History className="w-4 h-4" />
-              Histórico de Alterações ({auditLogs.length})
-            </button>
-          </div>
+          <button
+            onClick={() => setActiveTab('users')}
+            className={`px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 transition-all cursor-pointer ${
+              activeTab === 'users'
+                ? 'bg-purple-600 text-white shadow-lg shadow-purple-600/20'
+                : 'bg-slate-900 text-slate-400 hover:text-white border border-slate-800'
+            }`}
+          >
+            <Users className="w-4 h-4" />
+            Usuários ({usersList.length})
+          </button>
 
-          <span className="text-xs text-slate-400">
-            Ações administrativas de suporte, liberação e bloqueio
-          </span>
+          <button
+            onClick={() => setActiveTab('clinics')}
+            className={`px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 transition-all cursor-pointer ${
+              activeTab === 'clinics'
+                ? 'bg-purple-600 text-white shadow-lg shadow-purple-600/20'
+                : 'bg-slate-900 text-slate-400 hover:text-white border border-slate-800'
+            }`}
+          >
+            <Building2 className="w-4 h-4" />
+            Clínicas ({clinicsList.length})
+          </button>
+
+          <button
+            onClick={() => setActiveTab('payments')}
+            className={`px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 transition-all cursor-pointer ${
+              activeTab === 'payments'
+                ? 'bg-purple-600 text-white shadow-lg shadow-purple-600/20'
+                : 'bg-slate-900 text-slate-400 hover:text-white border border-slate-800'
+            }`}
+          >
+            <CreditCard className="w-4 h-4" />
+            Pagamentos Reais ({paymentsList.length})
+          </button>
+
+          <button
+            onClick={() => setActiveTab('audit')}
+            className={`px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 transition-all cursor-pointer ${
+              activeTab === 'audit'
+                ? 'bg-purple-600 text-white shadow-lg shadow-purple-600/20'
+                : 'bg-slate-900 text-slate-400 hover:text-white border border-slate-800'
+            }`}
+          >
+            <History className="w-4 h-4" />
+            Histórico ({auditLogs.length})
+          </button>
         </div>
 
-        {/* Tab 1: Users & Clinics Management */}
+        {/* ------------------------------------------------------------- */}
+        {/* TAB 0: DASHBOARD EXECUTIVE SUMMARY */}
+        {/* ------------------------------------------------------------- */}
+        {activeTab === 'dashboard' && (
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="bg-slate-900 p-5 rounded-2xl border border-slate-800 space-y-3">
+                <h3 className="text-xs font-extrabold uppercase text-purple-400 tracking-wider">
+                  Status de Licenciamento
+                </h3>
+                <div className="space-y-2 text-xs">
+                  <div className="flex justify-between py-1 border-b border-slate-800">
+                    <span className="text-slate-400">Total de Usuários:</span>
+                    <strong className="text-white">{stats.totalUsers}</strong>
+                  </div>
+                  <div className="flex justify-between py-1 border-b border-slate-800">
+                    <span className="text-slate-400">Acessos Liberados (Ativos):</span>
+                    <strong className="text-emerald-400">{stats.activeUsers}</strong>
+                  </div>
+                  <div className="flex justify-between py-1 border-b border-slate-800">
+                    <span className="text-slate-400">Pendente de Pagamento:</span>
+                    <strong className="text-amber-400">{stats.pendingUsers}</strong>
+                  </div>
+                  <div className="flex justify-between py-1">
+                    <span className="text-slate-400">Bloqueados:</span>
+                    <strong className="text-red-400">{stats.blockedUsers}</strong>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-slate-900 p-5 rounded-2xl border border-slate-800 space-y-3">
+                <h3 className="text-xs font-extrabold uppercase text-teal-400 tracking-wider">
+                  Integração Mercado Pago
+                </h3>
+                <div className="space-y-2 text-xs">
+                  <div className="flex justify-between py-1 border-b border-slate-800">
+                    <span className="text-slate-400">Transações Registradas:</span>
+                    <strong className="text-white">{paymentsList.length}</strong>
+                  </div>
+                  <div className="flex justify-between py-1 border-b border-slate-800">
+                    <span className="text-slate-400">Pagamentos Aprovados:</span>
+                    <strong className="text-teal-400">{stats.approvedPayments}</strong>
+                  </div>
+                  <div className="flex justify-between py-1 border-b border-slate-800">
+                    <span className="text-slate-400">Ticket Licença Clinora Pro:</span>
+                    <strong className="text-white">R$ 149,90</strong>
+                  </div>
+                  <div className="flex justify-between py-1">
+                    <span className="text-slate-400">Faturamento Bruto Real:</span>
+                    <strong className="text-emerald-400">
+                      R$ {stats.totalRevenue.toFixed(2).replace('.', ',')}
+                    </strong>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-slate-900 p-5 rounded-2xl border border-slate-800 space-y-3">
+                <h3 className="text-xs font-extrabold uppercase text-amber-400 tracking-wider">
+                  Ações Rápidas de Administração
+                </h3>
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  Gerencie permissões, redefina senhas de usuários e resolva discrepâncias entre pagamento e liberação de acesso.
+                </p>
+                <div className="pt-2 flex flex-col gap-2">
+                  <button
+                    onClick={() => setActiveTab('users')}
+                    className="w-full bg-purple-600 hover:bg-purple-500 text-white font-bold py-2 rounded-xl text-xs transition-colors"
+                  >
+                    Gerenciar Usuários
+                  </button>
+                  <button
+                    onClick={() => setActiveTab('payments')}
+                    className="w-full bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold py-2 rounded-xl text-xs transition-colors border border-slate-700"
+                  >
+                    Ver Pagamentos
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ------------------------------------------------------------- */}
+        {/* TAB 1: ALL REAL USERS TABLE */}
+        {/* ------------------------------------------------------------- */}
         {activeTab === 'users' && (
           <div className="space-y-4">
-            {/* Search & Filters Toolbar */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-slate-900/60 p-4 rounded-xl border border-slate-800/80">
-              {/* Search Bar */}
-              <div className="relative">
+            {/* Search & Filters */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-3 bg-slate-900/60 p-4 rounded-xl border border-slate-800/80">
+              <div className="relative col-span-1 md:col-span-2">
                 <Search className="w-4 h-4 text-slate-500 absolute left-3 top-3" />
                 <input
                   type="text"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  placeholder="Buscar por clínica, responsável, e-mail ou telefone..."
+                  placeholder="Buscar por nome, e-mail, telefone ou clínica..."
                   className="w-full bg-slate-950 border border-slate-800 rounded-lg pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-purple-500"
                 />
               </div>
 
-              {/* Access Status Filter */}
               <div className="flex items-center gap-2">
                 <Filter className="w-4 h-4 text-slate-400 shrink-0" />
-                <label className="text-xs text-slate-400 whitespace-nowrap">Status Acesso:</label>
                 <select
                   value={accessFilter}
                   onChange={(e) => setAccessFilter(e.target.value)}
                   className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-purple-500"
                 >
-                  <option value="all">Todos os Status</option>
+                  <option value="all">Acesso: Todos</option>
                   <option value="active">Ativos</option>
                   <option value="pending">Pendentes</option>
                   <option value="blocked">Bloqueados</option>
                 </select>
               </div>
 
-              {/* Subscription Status Filter */}
               <div className="flex items-center gap-2">
                 <CreditCard className="w-4 h-4 text-slate-400 shrink-0" />
-                <label className="text-xs text-slate-400 whitespace-nowrap">Assinatura:</label>
                 <select
                   value={subscriptionFilter}
                   onChange={(e) => setSubscriptionFilter(e.target.value)}
                   className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-purple-500"
                 >
-                  <option value="all">Todas as Assinaturas</option>
-                  <option value="active">Ativa</option>
-                  <option value="pending">Pendente</option>
-                  <option value="cancelled">Cancelada</option>
+                  <option value="all">Pagamento: Todos</option>
+                  <option value="approved">Aprovados</option>
+                  <option value="pending">Pendentes</option>
+                  <option value="cancelled">Cancelados</option>
+                  <option value="rejected">Rejeitados</option>
                 </select>
               </div>
             </div>
@@ -654,47 +830,42 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
               <table className="w-full text-left text-xs text-slate-300">
                 <thead className="bg-slate-900 text-slate-400 uppercase font-semibold text-[10px] tracking-wider">
                   <tr>
-                    <th className="p-3.5 rounded-l-lg">Clínica / Responsável</th>
-                    <th className="p-3.5">Contato</th>
+                    <th className="p-3.5 rounded-l-lg">Usuário / Responsável</th>
+                    <th className="p-3.5">Clínica</th>
+                    <th className="p-3.5">Plano</th>
                     <th className="p-3.5">Acesso</th>
-                    <th className="p-3.5">Assinatura</th>
+                    <th className="p-3.5">Pagamento</th>
                     <th className="p-3.5">Cadastro</th>
-                    <th className="p-3.5 rounded-r-lg text-right">Ações Administrativas</th>
+                    <th className="p-3.5">Último Acesso</th>
+                    <th className="p-3.5 rounded-r-lg text-right">Ações</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/60">
                   {loading ? (
                     <tr>
-                      <td colSpan={6} className="p-8 text-center text-slate-500">
+                      <td colSpan={8} className="p-8 text-center text-slate-500">
                         <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-purple-400" />
-                        Carregando registros do banco...
+                        Carregando usuários do banco de dados...
                       </td>
                     </tr>
                   ) : filteredUsers.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="p-8 text-center text-slate-500">
-                        Nenhuma clínica ou usuário encontrado com os filtros selecionados.
+                      <td colSpan={8} className="p-8 text-center text-slate-500">
+                        Nenhum usuário encontrado no banco de dados.
                       </td>
                     </tr>
                   ) : (
                     filteredUsers.map((user) => (
                       <tr key={user.id} className="hover:bg-slate-900/50 transition-colors">
                         <td className="p-3.5 font-medium">
-                          <p className="font-bold text-white text-sm">{user.clinicName}</p>
-                          <p className="text-slate-400 text-[11px] flex items-center gap-1 mt-0.5">
-                            <User className="w-3 h-3 text-purple-400" />
-                            {user.owner}
-                          </p>
+                          <p className="font-bold text-white text-sm">{user.owner}</p>
+                          <p className="text-slate-400 font-mono text-[11px]">{user.email}</p>
                         </td>
-                        <td className="p-3.5">
-                          <p className="text-slate-200 font-mono">{user.email}</p>
-                          {user.phone && (
-                            <p className="text-slate-400 text-[11px] flex items-center gap-1 mt-0.5">
-                              <Phone className="w-3 h-3 text-slate-500" />
-                              {user.phone}
-                            </p>
-                          )}
+                        <td className="p-3.5 font-semibold text-slate-200">
+                          {user.clinicName}
+                          {user.phone && <span className="block text-[11px] text-slate-400 font-normal">{user.phone}</span>}
                         </td>
+                        <td className="p-3.5 text-slate-300 font-medium">{user.plan}</td>
                         <td className="p-3.5">
                           {user.accessStatus === 'active' && (
                             <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full font-bold text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
@@ -717,39 +888,51 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
                         </td>
                         <td className="p-3.5">
                           <span
-                            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full font-semibold text-[10px] ${
-                              user.subscriptionStatus === 'active'
+                            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full font-semibold text-[10px] uppercase ${
+                              user.subscriptionStatus === 'approved' || user.subscriptionStatus === 'active'
                                 ? 'bg-teal-500/10 text-teal-400 border border-teal-500/30'
                                 : user.subscriptionStatus === 'pending'
                                 ? 'bg-amber-500/10 text-amber-400 border border-amber-500/30'
                                 : 'bg-rose-500/10 text-rose-400 border border-rose-500/30'
                             }`}
                           >
-                            {user.subscriptionStatus === 'active'
-                              ? 'Ativa'
+                            {user.subscriptionStatus === 'approved' || user.subscriptionStatus === 'active'
+                              ? 'Aprovado'
                               : user.subscriptionStatus === 'pending'
                               ? 'Pendente'
-                              : 'Cancelada'}
+                              : 'Recusado'}
                           </span>
                         </td>
                         <td className="p-3.5 text-slate-400 font-mono text-[11px]">{user.createdAt}</td>
-                        <td className="p-3.5 text-right space-x-2">
-                          {/* Quick Action Button */}
-                          {user.accessStatus === 'pending' && (
+                        <td className="p-3.5 text-slate-400 font-mono text-[11px]">{user.lastSignInAt}</td>
+                        <td className="p-3.5 text-right space-x-2 whitespace-nowrap">
+                          {/* Discrepancy Action: Payment Approved but Access Pending */}
+                          {(user.subscriptionStatus === 'approved' || user.subscriptionStatus === 'active') &&
+                            user.accessStatus === 'pending' && (
+                              <button
+                                onClick={() => triggerActionModal(user, 'manual_release')}
+                                className="bg-teal-600 hover:bg-teal-500 text-white px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-colors inline-flex items-center gap-1 cursor-pointer animate-pulse"
+                                title="Pagamento aprovado. Liberar Acesso agora!"
+                              >
+                                <CheckSquare className="w-3 h-3" /> Liberar Acesso
+                              </button>
+                            )}
+
+                          {user.accessStatus === 'pending' && user.subscriptionStatus !== 'approved' && (
                             <button
-                              onClick={() => triggerQuickAction(user, 'activate')}
-                              className="bg-emerald-600 hover:bg-emerald-500 text-white px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-colors inline-flex items-center gap-1"
-                              title="Liberar Acesso Rapidamente"
+                              onClick={() => triggerActionModal(user, 'activate')}
+                              className="bg-emerald-600 hover:bg-emerald-500 text-white px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-colors inline-flex items-center gap-1 cursor-pointer"
+                              title="Liberar Acesso"
                             >
-                              <CheckCircle2 className="w-3 h-3" /> Liberar Acesso
+                              <CheckCircle2 className="w-3 h-3" /> Ativar
                             </button>
                           )}
 
                           {user.accessStatus === 'active' && (
                             <button
-                              onClick={() => triggerQuickAction(user, 'block')}
-                              className="bg-red-600/80 hover:bg-red-500 text-white px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-colors inline-flex items-center gap-1"
-                              title="Bloquear Acesso da Clínica"
+                              onClick={() => triggerActionModal(user, 'block')}
+                              className="bg-red-600/80 hover:bg-red-500 text-white px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-colors inline-flex items-center gap-1 cursor-pointer"
+                              title="Bloquear Acesso"
                             >
                               <Lock className="w-3 h-3" /> Bloquear
                             </button>
@@ -757,18 +940,17 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
 
                           {user.accessStatus === 'blocked' && (
                             <button
-                              onClick={() => triggerQuickAction(user, 'unblock')}
-                              className="bg-emerald-600 hover:bg-emerald-500 text-white px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-colors inline-flex items-center gap-1"
+                              onClick={() => triggerActionModal(user, 'unblock')}
+                              className="bg-emerald-600 hover:bg-emerald-500 text-white px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-colors inline-flex items-center gap-1 cursor-pointer"
                               title="Desbloquear Acesso"
                             >
                               <Unlock className="w-3 h-3" /> Desbloquear
                             </button>
                           )}
 
-                          {/* "Gerenciar" Main Action */}
                           <button
                             onClick={() => openManageModal(user)}
-                            className="bg-purple-600 hover:bg-purple-500 text-white px-3 py-1.5 rounded-lg text-[11px] font-bold transition-colors inline-flex items-center gap-1.5 shadow-md shadow-purple-600/20"
+                            className="bg-purple-600 hover:bg-purple-500 text-white px-3 py-1.5 rounded-lg text-[11px] font-bold transition-colors inline-flex items-center gap-1 shadow-md shadow-purple-600/20 cursor-pointer"
                           >
                             <Settings className="w-3.5 h-3.5" />
                             Gerenciar
@@ -783,12 +965,180 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
           </div>
         )}
 
-        {/* Tab 2: Global Audit Logs */}
+        {/* ------------------------------------------------------------- */}
+        {/* TAB 2: REAL CLINICS LIST */}
+        {/* ------------------------------------------------------------- */}
+        {activeTab === 'clinics' && (
+          <div className="space-y-4">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs text-slate-300">
+                <thead className="bg-slate-900 text-slate-400 uppercase font-semibold text-[10px] tracking-wider">
+                  <tr>
+                    <th className="p-3.5 rounded-l-lg">Nome da Clínica</th>
+                    <th className="p-3.5">Responsável / E-mail</th>
+                    <th className="p-3.5">Telefone</th>
+                    <th className="p-3.5">Plano</th>
+                    <th className="p-3.5">Status Clínica</th>
+                    <th className="p-3.5">Data Cadastro</th>
+                    <th className="p-3.5 rounded-r-lg text-right">Último Acesso</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/60">
+                  {loading ? (
+                    <tr>
+                      <td colSpan={7} className="p-8 text-center text-slate-500">
+                        Carregando clínicas do banco de dados...
+                      </td>
+                    </tr>
+                  ) : clinicsList.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="p-8 text-center text-slate-500">
+                        Nenhuma clínica cadastrada no banco de dados.
+                      </td>
+                    </tr>
+                  ) : (
+                    clinicsList.map((clinic) => (
+                      <tr key={clinic.id} className="hover:bg-slate-900/50 transition-colors">
+                        <td className="p-3.5 font-bold text-white text-sm">{clinic.name}</td>
+                        <td className="p-3.5">
+                          <p className="font-semibold text-slate-200">{clinic.ownerName}</p>
+                          <p className="text-slate-400 text-[11px] font-mono">{clinic.ownerEmail}</p>
+                        </td>
+                        <td className="p-3.5 text-slate-300 font-mono">{clinic.phone || 'Não informado'}</td>
+                        <td className="p-3.5 text-purple-400 font-semibold">Clinora Pro</td>
+                        <td className="p-3.5">
+                          <span
+                            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full font-bold text-[10px] uppercase ${
+                              clinic.status === 'active'
+                                ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'
+                                : 'bg-red-500/10 text-red-400 border border-red-500/30'
+                            }`}
+                          >
+                            {clinic.status === 'active' ? 'Ativa' : 'Bloqueada'}
+                          </span>
+                        </td>
+                        <td className="p-3.5 text-slate-400 font-mono text-[11px]">{clinic.createdAt}</td>
+                        <td className="p-3.5 text-right text-slate-400 font-mono text-[11px]">{clinic.lastSignInAt}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* ------------------------------------------------------------- */}
+        {/* TAB 3: REAL PAYMENTS TABLE (MERCADO PAGO) */}
+        {/* ------------------------------------------------------------- */}
+        {activeTab === 'payments' && (
+          <div className="space-y-4">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs text-slate-300">
+                <thead className="bg-slate-900 text-slate-400 uppercase font-semibold text-[10px] tracking-wider">
+                  <tr>
+                    <th className="p-3.5 rounded-l-lg">Cliente / E-mail</th>
+                    <th className="p-3.5">Clínica Vinculada</th>
+                    <th className="p-3.5">Valor</th>
+                    <th className="p-3.5">Status Mercado Pago</th>
+                    <th className="p-3.5">Método</th>
+                    <th className="p-3.5">ID Transação / Pref ID</th>
+                    <th className="p-3.5">Data</th>
+                    <th className="p-3.5 rounded-r-lg text-right">Ação de Suporte</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/60">
+                  {loading ? (
+                    <tr>
+                      <td colSpan={8} className="p-8 text-center text-slate-500">
+                        Carregando registros de pagamentos do banco...
+                      </td>
+                    </tr>
+                  ) : filteredPayments.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="p-8 text-center text-slate-500">
+                        Nenhum pagamento encontrado com os filtros selecionados.
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredPayments.map((pay) => (
+                      <tr key={pay.id} className="hover:bg-slate-900/50 transition-colors">
+                        <td className="p-3.5 font-bold text-white">
+                          {pay.clientName}
+                          <span className="block text-[11px] text-slate-400 font-mono font-normal">
+                            {pay.email}
+                          </span>
+                        </td>
+                        <td className="p-3.5 font-semibold text-slate-300">{pay.clinicName}</td>
+                        <td className="p-3.5 font-bold text-emerald-400">
+                          R$ {pay.amount.toFixed(2).replace('.', ',')}
+                        </td>
+                        <td className="p-3.5">
+                          <span
+                            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full font-bold text-[10px] uppercase ${
+                              pay.status === 'approved'
+                                ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'
+                                : pay.status === 'pending'
+                                ? 'bg-amber-500/10 text-amber-400 border border-amber-500/30'
+                                : 'bg-red-500/10 text-red-400 border border-red-500/30'
+                            }`}
+                          >
+                            {pay.status === 'approved'
+                              ? 'Aprovado'
+                              : pay.status === 'pending'
+                              ? 'Pendente'
+                              : 'Recusado'}
+                          </span>
+                        </td>
+                        <td className="p-3.5 text-slate-300 font-mono text-[11px] uppercase">
+                          {pay.paymentMethod}
+                        </td>
+                        <td className="p-3.5 text-slate-400 font-mono text-[11px] truncate max-w-[140px]">
+                          {pay.transactionId || pay.id}
+                        </td>
+                        <td className="p-3.5 text-slate-400 font-mono text-[11px]">{pay.createdAt}</td>
+                        <td className="p-3.5 text-right">
+                          {pay.status === 'approved' && pay.userAccessStatus === 'pending' && (
+                            <button
+                              onClick={() =>
+                                triggerActionModal(
+                                  {
+                                    userId: pay.userId,
+                                    clinicId: pay.clinicId,
+                                    owner: pay.clientName,
+                                    clinicName: pay.clinicName,
+                                    email: pay.email,
+                                  },
+                                  'manual_release'
+                                )
+                              }
+                              className="bg-teal-600 hover:bg-teal-500 text-white font-bold px-3 py-1 rounded-lg text-[11px] transition-colors inline-flex items-center gap-1 cursor-pointer"
+                            >
+                              <CheckSquare className="w-3 h-3" />
+                              Liberar Acesso
+                            </button>
+                          )}
+                          {pay.status === 'approved' && pay.userAccessStatus === 'active' && (
+                            <span className="text-emerald-400 font-bold text-[10px] flex items-center justify-end gap-1">
+                              <Check className="w-3 h-3" />
+                              Acesso Liberado
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* ------------------------------------------------------------- */}
         {activeTab === 'audit' && (
           <div className="space-y-4">
-            <h3 className="text-sm font-bold text-white flex items-center gap-2">
-              <History className="w-4 h-4 text-purple-400" />
-              Histórico de Alterações Administrativas
+            <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider">
+              Histórico de Ações Administrativas do Banco
             </h3>
 
             <div className="overflow-x-auto">
@@ -805,7 +1155,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
                   {auditLogs.length === 0 ? (
                     <tr>
                       <td colSpan={4} className="p-8 text-center text-slate-500">
-                        Nenhuma alteração registrada até o momento.
+                        Nenhuma ação administrativa registrada no banco.
                       </td>
                     </tr>
                   ) : (
@@ -842,14 +1192,14 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
                 <div>
                   <h2 className="text-base font-extrabold text-white">{selectedUser.clinicName}</h2>
                   <p className="text-xs text-slate-400">
-                    Gerenciamento completo: {selectedUser.owner} ({selectedUser.email})
+                    Gerenciamento: {selectedUser.owner} ({selectedUser.email})
                   </p>
                 </div>
               </div>
 
               <button
                 onClick={() => setSelectedUser(null)}
-                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors"
+                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -859,18 +1209,18 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
             <div className="flex items-center gap-1 p-2 bg-slate-950/60 border-b border-slate-800 overflow-x-auto text-xs font-semibold">
               <button
                 onClick={() => setModalTab('overview')}
-                className={`px-3 py-2 rounded-lg flex items-center gap-1.5 whitespace-nowrap transition-colors ${
+                className={`px-3 py-2 rounded-lg flex items-center gap-1.5 whitespace-nowrap transition-colors cursor-pointer ${
                   modalTab === 'overview'
                     ? 'bg-purple-600 text-white font-bold'
                     : 'text-slate-400 hover:text-white hover:bg-slate-800'
                 }`}
               >
-                <User className="w-3.5 h-3.5" /> Visão Geral
+                <User className="w-3.5 h-3.5" /> Dados Pessoais & Clínica
               </button>
 
               <button
                 onClick={() => setModalTab('access')}
-                className={`px-3 py-2 rounded-lg flex items-center gap-1.5 whitespace-nowrap transition-colors ${
+                className={`px-3 py-2 rounded-lg flex items-center gap-1.5 whitespace-nowrap transition-colors cursor-pointer ${
                   modalTab === 'access'
                     ? 'bg-purple-600 text-white font-bold'
                     : 'text-slate-400 hover:text-white hover:bg-slate-800'
@@ -881,7 +1231,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
 
               <button
                 onClick={() => setModalTab('credentials')}
-                className={`px-3 py-2 rounded-lg flex items-center gap-1.5 whitespace-nowrap transition-colors ${
+                className={`px-3 py-2 rounded-lg flex items-center gap-1.5 whitespace-nowrap transition-colors cursor-pointer ${
                   modalTab === 'credentials'
                     ? 'bg-purple-600 text-white font-bold'
                     : 'text-slate-400 hover:text-white hover:bg-slate-800'
@@ -892,23 +1242,23 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
 
               <button
                 onClick={() => setModalTab('plan')}
-                className={`px-3 py-2 rounded-lg flex items-center gap-1.5 whitespace-nowrap transition-colors ${
+                className={`px-3 py-2 rounded-lg flex items-center gap-1.5 whitespace-nowrap transition-colors cursor-pointer ${
                   modalTab === 'plan'
                     ? 'bg-purple-600 text-white font-bold'
                     : 'text-slate-400 hover:text-white hover:bg-slate-800'
                 }`}
               >
-                <CreditCard className="w-3.5 h-3.5" /> Plano & Assinatura
+                <CreditCard className="w-3.5 h-3.5" /> Assinatura & Pagamento
               </button>
             </div>
 
             {/* Modal Body */}
             <div className="p-6 space-y-6 max-h-[70vh] overflow-y-auto">
-              {/* ------------------ TAB 1: VISÃO GERAL / DADOS ------------------ */}
+              {/* TAB 1: DADOS PESSOAIS */}
               {modalTab === 'overview' && (
                 <form onSubmit={handleSaveUserInfo} className="space-y-4">
                   <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-400">
-                    Dados Cadastrais da Clínica e Responsável
+                    Editar Dados Cadastrais
                   </h3>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -961,20 +1311,25 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 bg-slate-950 p-4 rounded-xl border border-slate-800/80 text-xs text-slate-300 mt-2">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-950 p-4 rounded-xl border border-slate-800/80 text-xs text-slate-300 mt-2 font-mono">
                     <div>
-                      <p className="text-slate-500 text-[10px] font-semibold">Data de Cadastro</p>
-                      <p className="font-bold text-white mt-0.5">{selectedUser.createdAt}</p>
+                      <p className="text-slate-500 text-[10px] font-semibold">ID Usuário</p>
+                      <p className="font-bold text-white truncate text-[10px]">{selectedUser.userId}</p>
+                    </div>
+
+                    <div>
+                      <p className="text-slate-500 text-[10px] font-semibold">ID Clínica</p>
+                      <p className="font-bold text-white truncate text-[10px]">{selectedUser.clinicId || 'Sem ID'}</p>
+                    </div>
+
+                    <div>
+                      <p className="text-slate-500 text-[10px] font-semibold">Data Cadastro</p>
+                      <p className="font-bold text-white text-[10px]">{selectedUser.createdAt}</p>
                     </div>
 
                     <div>
                       <p className="text-slate-500 text-[10px] font-semibold">Último Acesso</p>
-                      <p className="font-bold text-white mt-0.5">{selectedUser.lastSignInAt || 'Nunca'}</p>
-                    </div>
-
-                    <div>
-                      <p className="text-slate-500 text-[10px] font-semibold">Status de Acesso</p>
-                      <p className="font-bold text-purple-400 uppercase mt-0.5">{selectedUser.accessStatus}</p>
+                      <p className="font-bold text-white text-[10px]">{selectedUser.lastSignInAt}</p>
                     </div>
                   </div>
 
@@ -982,7 +1337,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
                     <button
                       type="submit"
                       disabled={infoSaving}
-                      className="bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs px-4 py-2.5 rounded-xl transition-colors inline-flex items-center gap-2"
+                      className="bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs px-4 py-2.5 rounded-xl transition-colors inline-flex items-center gap-2 cursor-pointer"
                     >
                       <Save className="w-4 h-4" />
                       {infoSaving ? 'Salvando...' : 'Salvar Alterações'}
@@ -991,240 +1346,196 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
                 </form>
               )}
 
-              {/* ------------------ TAB 2: CONTROLE DE ACESSO ------------------ */}
+              {/* TAB 2: CONTROLE DE ACESSO */}
               {modalTab === 'access' && (
                 <div className="space-y-5">
                   <div>
                     <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-400 mb-2">
-                      Status Atual de Acesso do Usuário
+                      Status de Acesso do Usuário
                     </h3>
 
                     <div className="flex items-center gap-3 p-4 bg-slate-950 border border-slate-800 rounded-xl">
                       <span className="text-xs text-slate-300 font-semibold">Status de Acesso:</span>
                       {selectedUser.accessStatus === 'active' && (
                         <span className="px-3 py-1 rounded-full font-bold text-xs bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
-                          ATIVO (Acesso liberado ao Clinora)
+                          ATIVO (Acesso liberado)
                         </span>
                       )}
                       {selectedUser.accessStatus === 'pending' && (
                         <span className="px-3 py-1 rounded-full font-bold text-xs bg-amber-500/10 text-amber-400 border border-amber-500/30">
-                          PENDENTE (Aguardando Pagamento/Liberação)
+                          PENDENTE (Aguardando liberação)
                         </span>
                       )}
                       {selectedUser.accessStatus === 'blocked' && (
                         <span className="px-3 py-1 rounded-full font-bold text-xs bg-red-500/10 text-red-400 border border-red-500/30">
-                          BLOQUEADO (Acesso temporariamente suspenso)
+                          BLOQUEADO (Acesso suspenso)
                         </span>
                       )}
                     </div>
                   </div>
 
                   <div className="space-y-3">
-                    <h4 className="text-xs font-bold text-slate-300">Alterar Status de Acesso:</h4>
+                    <h4 className="text-xs font-bold text-slate-300">Ações de Controle de Acesso:</h4>
 
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                      {/* Ativar */}
                       <button
                         onClick={() => handleUpdateAccessStatus(selectedUser, 'active')}
-                        disabled={selectedUser.accessStatus === 'active'}
-                        className={`p-4 rounded-xl border flex flex-col items-center justify-center gap-2 text-center transition-all ${
-                          selectedUser.accessStatus === 'active'
-                            ? 'bg-emerald-950/40 border-emerald-500/50 text-emerald-300 cursor-default opacity-80'
-                            : 'bg-slate-950 border-slate-800 hover:border-emerald-500/50 text-slate-300 hover:text-emerald-400'
-                        }`}
+                        className="bg-emerald-950/60 border border-emerald-500/40 hover:bg-emerald-900/60 text-emerald-200 p-4 rounded-xl text-left transition-colors space-y-1 cursor-pointer"
                       >
-                        <CheckCircle2 className="w-6 h-6 text-emerald-400" />
-                        <div>
-                          <p className="font-bold text-xs">Ativar Acesso</p>
-                          <p className="text-[10px] text-slate-400 mt-0.5">
-                            Permite login e todas as funções
-                          </p>
+                        <div className="flex items-center gap-2 font-bold text-xs text-emerald-400">
+                          <CheckCircle2 className="w-4 h-4" /> Ativar Acesso
                         </div>
+                        <p className="text-[11px] text-slate-400">
+                          Libera acesso completo ao sistema Clinora.
+                        </p>
                       </button>
 
-                      {/* Pendente */}
                       <button
                         onClick={() => handleUpdateAccessStatus(selectedUser, 'pending')}
-                        disabled={selectedUser.accessStatus === 'pending'}
-                        className={`p-4 rounded-xl border flex flex-col items-center justify-center gap-2 text-center transition-all ${
-                          selectedUser.accessStatus === 'pending'
-                            ? 'bg-amber-950/40 border-amber-500/50 text-amber-300 cursor-default opacity-80'
-                            : 'bg-slate-950 border-slate-800 hover:border-amber-500/50 text-slate-300 hover:text-amber-400'
-                        }`}
+                        className="bg-amber-950/60 border border-amber-500/40 hover:bg-amber-900/60 text-amber-200 p-4 rounded-xl text-left transition-colors space-y-1 cursor-pointer"
                       >
-                        <Clock className="w-6 h-6 text-amber-400" />
-                        <div>
-                          <p className="font-bold text-xs">Colocar como Pendente</p>
-                          <p className="text-[10px] text-slate-400 mt-0.5">
-                            Redireciona para checkout
-                          </p>
+                        <div className="flex items-center gap-2 font-bold text-xs text-amber-400">
+                          <Clock className="w-4 h-4" /> Colocar como Pendente
                         </div>
+                        <p className="text-[11px] text-slate-400">
+                          Exige confirmação de pagamento para acessar.
+                        </p>
                       </button>
 
-                      {/* Bloquear */}
                       <button
                         onClick={() => handleUpdateAccessStatus(selectedUser, 'blocked')}
-                        disabled={selectedUser.accessStatus === 'blocked'}
-                        className={`p-4 rounded-xl border flex flex-col items-center justify-center gap-2 text-center transition-all ${
-                          selectedUser.accessStatus === 'blocked'
-                            ? 'bg-red-950/40 border-red-500/50 text-red-300 cursor-default opacity-80'
-                            : 'bg-slate-950 border-slate-800 hover:border-red-500/50 text-slate-300 hover:text-red-400'
-                        }`}
+                        className="bg-red-950/60 border border-red-500/40 hover:bg-red-900/60 text-red-200 p-4 rounded-xl text-left transition-colors space-y-1 cursor-pointer"
                       >
-                        <Lock className="w-6 h-6 text-red-400" />
-                        <div>
-                          <p className="font-bold text-xs">Bloquear Acesso</p>
-                          <p className="text-[10px] text-slate-400 mt-0.5">
-                            Impede login do usuário
-                          </p>
+                        <div className="flex items-center gap-2 font-bold text-xs text-red-400">
+                          <Lock className="w-4 h-4" /> Bloquear Acesso
                         </div>
+                        <p className="text-[11px] text-slate-400">
+                          Impede o login da clínica no sistema.
+                        </p>
                       </button>
                     </div>
-                  </div>
-
-                  <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 text-[11px] text-slate-400 space-y-1">
-                    <p className="font-bold text-slate-300">Nota de Suporte Técnico:</p>
-                    <p>
-                      O status de acesso manual pode ser administrado independentemente do status da assinatura. Bloquear um usuário não apaga nenhum dado da clínica ou histórico de atendimentos.
-                    </p>
                   </div>
                 </div>
               )}
 
-              {/* ------------------ TAB 3: CREDENCIAIS & SENHA ------------------ */}
+              {/* TAB 3: CREDENCIAIS & REDEFINIÇÃO DE SENHA */}
               {modalTab === 'credentials' && (
-                <form onSubmit={handleResetPassword} className="space-y-4">
-                  <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-400">
-                    Gerenciamento de Login & Redefinição de Senha
-                  </h3>
-
-                  <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-2 text-xs">
-                    <div className="flex justify-between items-center">
-                      <span className="text-slate-400 font-semibold">E-mail de Login Atual:</span>
-                      <span className="font-bold text-white font-mono">{selectedUser.email}</span>
-                    </div>
-                    <p className="text-[10px] text-slate-500">
-                      Defina uma nova senha segura para o usuário. A senha anterior nunca é exibida por motivos de segurança e é armazenada via Hash.
-                    </p>
+                <div className="space-y-5">
+                  <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-1">
+                    <p className="text-xs text-slate-400">E-mail de Autenticação:</p>
+                    <p className="text-sm font-bold text-white font-mono">{selectedUser.email}</p>
                   </div>
 
-                  {credMessage && (
-                    <div
-                      className={`p-3 rounded-lg text-xs font-semibold flex items-center gap-2 ${
-                        credMessage.type === 'success'
-                          ? 'bg-emerald-950 border border-emerald-500/30 text-emerald-300'
-                          : 'bg-red-950 border border-red-500/30 text-red-300'
-                      }`}
-                    >
-                      {credMessage.type === 'success' ? (
-                        <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                      ) : (
-                        <AlertCircle className="w-4 h-4 text-red-400" />
-                      )}
-                      {credMessage.text}
+                  <form onSubmit={handleResetPassword} className="space-y-4 bg-slate-950/60 p-5 rounded-2xl border border-slate-800">
+                    <h3 className="text-xs font-bold text-white flex items-center gap-2">
+                      <Key className="w-4 h-4 text-purple-400" /> Redefinir Senha do Usuário
+                    </h3>
+
+                    {credMessage && (
+                      <div
+                        className={`p-3 rounded-xl text-xs font-semibold ${
+                          credMessage.type === 'success'
+                            ? 'bg-emerald-950 border border-emerald-500/40 text-emerald-300'
+                            : 'bg-red-950 border border-red-500/40 text-red-300'
+                        }`}
+                      >
+                        {credMessage.text}
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-300 mb-1">
+                          Nova Senha (mínimo 6 caracteres)
+                        </label>
+                        <input
+                          type="password"
+                          value={newPassword}
+                          onChange={(e) => setNewPassword(e.target.value)}
+                          placeholder="Digite a nova senha..."
+                          className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white focus:border-purple-500 focus:outline-none"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-300 mb-1">
+                          Confirmar Nova Senha
+                        </label>
+                        <input
+                          type="password"
+                          value={confirmPassword}
+                          onChange={(e) => setConfirmPassword(e.target.value)}
+                          placeholder="Confirme a senha..."
+                          className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white focus:border-purple-500 focus:outline-none"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex justify-end pt-2">
+                      <button
+                        type="submit"
+                        disabled={credLoading}
+                        className="bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs px-4 py-2.5 rounded-xl transition-colors cursor-pointer"
+                      >
+                        {credLoading ? 'Redefinindo...' : 'Redefinir Senha'}
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              )}
+
+              {/* TAB 4: PLANO & PAGAMENTOS */}
+              {modalTab === 'plan' && (
+                <div className="space-y-5">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-1">
+                      <p className="text-[10px] text-slate-500 font-bold uppercase">Plano Atribuído</p>
+                      <p className="text-sm font-extrabold text-purple-400">{selectedUser.plan}</p>
+                      <p className="text-[11px] text-slate-400">Licença Vitalícia • R$ 149,90</p>
+                    </div>
+
+                    <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-1">
+                      <p className="text-[10px] text-slate-500 font-bold uppercase">Status no Mercado Pago</p>
+                      <p className="text-sm font-extrabold text-white uppercase">{selectedUser.subscriptionStatus}</p>
+                      <p className="text-[11px] text-slate-400">Checkout Oficial Mercado Pago</p>
+                    </div>
+                  </div>
+
+                  {selectedUser.paymentDetails ? (
+                    <div className="bg-slate-950 p-5 rounded-2xl border border-slate-800 space-y-3 font-mono text-xs">
+                      <h4 className="font-bold text-white text-xs font-sans">Registro de Pagamento no Banco:</h4>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-slate-300">
+                        <div>ID Pagamento MP: <strong className="text-white">{selectedUser.paymentDetails.paymentId || 'N/A'}</strong></div>
+                        <div>Valor Pago: <strong className="text-emerald-400">R$ {selectedUser.paymentDetails.amount?.toFixed(2).replace('.', ',')}</strong></div>
+                        <div>Método: <strong className="text-white">{selectedUser.paymentDetails.paymentMethod}</strong></div>
+                        <div>Data: <strong className="text-white">{selectedUser.paymentDetails.createdAt ? new Date(selectedUser.paymentDetails.createdAt).toLocaleString('pt-BR') : 'N/A'}</strong></div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="bg-slate-950 p-5 rounded-2xl border border-slate-800 text-xs text-slate-400">
+                      Nenhum registro prévio de transação encontrado no banco para este usuário.
                     </div>
                   )}
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-300 mb-1">
-                        Nova Senha (Mínimo 6 caracteres) *
-                      </label>
-                      <input
-                        type="password"
-                        required
-                        minLength={6}
-                        value={newPassword}
-                        onChange={(e) => setNewPassword(e.target.value)}
-                        placeholder="Digite a nova senha"
-                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white focus:border-purple-500 focus:outline-none"
-                      />
+                  {/* Discrepancy Tool: Payment Approved but Access Pending */}
+                  {selectedUser.subscriptionStatus === 'approved' && selectedUser.accessStatus === 'pending' && (
+                    <div className="bg-amber-950/60 border-2 border-amber-500/60 p-5 rounded-2xl space-y-3">
+                      <div className="flex items-center gap-2 font-extrabold text-amber-300 text-xs">
+                        <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0" />
+                        <span>Discrepância Detectada: Pagamento Aprovado com Acesso Pendente</span>
+                      </div>
+                      <p className="text-xs text-slate-300 leading-relaxed">
+                        O Mercado Pago registrou o pagamento como aprovado, porém o acesso do usuário ainda consta como pendente.
+                      </p>
+                      <button
+                        onClick={() => handleReleaseManualAccess(selectedUser)}
+                        className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold py-2.5 px-4 rounded-xl text-xs flex items-center gap-2 transition-colors cursor-pointer"
+                      >
+                        <CheckSquare className="w-4 h-4" />
+                        Liberar Acesso do Usuário
+                      </button>
                     </div>
-
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-300 mb-1">
-                        Confirmar Nova Senha *
-                      </label>
-                      <input
-                        type="password"
-                        required
-                        minLength={6}
-                        value={confirmPassword}
-                        onChange={(e) => setConfirmPassword(e.target.value)}
-                        placeholder="Repita a nova senha"
-                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white focus:border-purple-500 focus:outline-none"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="flex justify-end pt-2">
-                    <button
-                      type="submit"
-                      disabled={credLoading}
-                      className="bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs px-4 py-2.5 rounded-xl transition-colors inline-flex items-center gap-2"
-                    >
-                      <Key className="w-4 h-4" />
-                      {credLoading ? 'Redefinindo...' : 'Definir Nova Senha'}
-                    </button>
-                  </div>
-                </form>
-              )}
-
-              {/* ------------------ TAB 4: PLANO & ASSINATURA ------------------ */}
-              {modalTab === 'plan' && (
-                <div className="space-y-5">
-                  <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-400">
-                    Detalhes do Plano e Transação de Pagamento
-                  </h3>
-
-                  <div className="bg-slate-950 p-5 rounded-xl border border-slate-800 space-y-4 text-xs">
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <p className="text-slate-500 font-semibold text-[10px]">Plano Contratado</p>
-                        <p className="font-extrabold text-white text-sm mt-0.5">Clinora Pro</p>
-                      </div>
-
-                      <div>
-                        <p className="text-slate-500 font-semibold text-[10px]">Tipo de Licença</p>
-                        <p className="font-bold text-teal-400 text-sm mt-0.5">Acesso Vitalício</p>
-                      </div>
-
-                      <div>
-                        <p className="text-slate-500 font-semibold text-[10px]">Valor da Licença</p>
-                        <p className="font-bold text-white text-sm mt-0.5">R$ 149,90 (Pagamento Único)</p>
-                      </div>
-
-                      <div>
-                        <p className="text-slate-500 font-semibold text-[10px]">Status da Assinatura MP</p>
-                        <span
-                          className={`inline-block px-2.5 py-0.5 rounded-full font-bold text-[10px] mt-1 ${
-                            selectedUser.subscriptionStatus === 'active'
-                              ? 'bg-teal-500/10 text-teal-400 border border-teal-500/30'
-                              : 'bg-amber-500/10 text-amber-400 border border-amber-500/30'
-                          }`}
-                        >
-                          {selectedUser.subscriptionStatus.toUpperCase()}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="bg-purple-950/30 border border-purple-500/30 p-4 rounded-xl space-y-2">
-                    <h4 className="font-bold text-xs text-purple-300 flex items-center gap-1.5">
-                      <Sparkles className="w-4 h-4 text-purple-400" />
-                      Liberar Acesso em Caso de Erro de Webhook
-                    </h4>
-                    <p className="text-[11px] text-slate-300 leading-relaxed">
-                      Se o cliente pagou R$ 149,90 pelo Mercado Pago mas o webhook não ativou a conta automaticamente, você pode conceder o acesso diretamente clicando no botão abaixo:
-                    </p>
-                    <button
-                      onClick={() => handleUpdateAccessStatus(selectedUser, 'active')}
-                      className="bg-teal-600 hover:bg-teal-500 text-white font-bold text-xs px-4 py-2 rounded-lg transition-colors mt-2 inline-flex items-center gap-2"
-                    >
-                      <CheckCircle2 className="w-4 h-4" />
-                      Conceder Acesso Vitalício Manualmente
-                    </button>
-                  </div>
+                  )}
                 </div>
               )}
             </div>
@@ -1233,14 +1544,14 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
       )}
 
       {/* ========================================================================= */}
-      {/* CONFIRMATION MODAL */}
+      {/* CONFIRMATION ACTION MODAL */}
       {/* ========================================================================= */}
       {confirmModal.isOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 space-y-4 shadow-2xl">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 space-y-6 shadow-2xl">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-purple-500/20 text-purple-400 border border-purple-500/30 flex items-center justify-center shrink-0">
-                <AlertTriangle className="w-5 h-5" />
+                <AlertCircle className="w-5 h-5" />
               </div>
               <h3 className="text-base font-extrabold text-white">{confirmModal.title}</h3>
             </div>
@@ -1250,15 +1561,15 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
             <div className="flex items-center justify-end gap-3 pt-2">
               <button
                 onClick={() => setConfirmModal({ ...confirmModal, isOpen: false })}
-                className="bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs px-4 py-2 rounded-xl transition-colors"
+                className="bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold px-4 py-2.5 rounded-xl text-xs transition-colors cursor-pointer"
               >
                 Cancelar
               </button>
               <button
                 onClick={handleExecuteConfirmAction}
-                className="bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs px-4 py-2 rounded-xl transition-colors"
+                className="bg-purple-600 hover:bg-purple-500 text-white font-bold px-5 py-2.5 rounded-xl text-xs transition-colors shadow-lg shadow-purple-600/20 cursor-pointer"
               >
-                Confirmar Ação
+                Confirmar
               </button>
             </div>
           </div>

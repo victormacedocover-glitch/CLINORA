@@ -25,6 +25,7 @@ import { Footer } from './components/Footer';
 import { AppSidebar } from './components/AppSidebar';
 import { SubscriptionStatus, UserRole } from './types';
 import { supabase, isSupabaseConfigured } from './lib/supabase';
+import { clearClinicIdCache, getActiveClinicId } from './lib/supabaseServices';
 
 export default function App() {
   const [currentRoute, setCurrentRoute] = useState<string>(() => {
@@ -33,6 +34,7 @@ export default function App() {
 
   const [user, setUser] = useState<{
     id?: string;
+    clinicId?: string;
     fullName: string;
     email: string;
     role: UserRole;
@@ -67,55 +69,98 @@ export default function App() {
   useEffect(() => {
     if (!isSupabaseConfigured) return;
 
+    const fetchUserProfile = async (u: any) => {
+      const userEmail = u.email || '';
+      const meta = u.user_metadata || {};
+
+      // Explicit super_admin email check
+      const isSuperAdminEmail =
+        userEmail === 'victorbeirigo@hotmail.com' ||
+        userEmail === 'victorbeirigo76@gmail.com' ||
+        userEmail === 'admin@clinora.com';
+
+      // 1. Fetch profile
+      let role: UserRole = isSuperAdminEmail ? 'super_admin' : 'clinic_admin';
+      let clinicId: string | undefined = undefined;
+      let clinicName = meta.clinic_name || 'Minha Clínica';
+
+      try {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('role, clinic_id, full_name')
+          .eq('user_id', u.id)
+          .maybeSingle();
+
+        if (profile) {
+          if (profile.role) role = profile.role as UserRole;
+          if (profile.clinic_id) clinicId = profile.clinic_id;
+        }
+
+        if (clinicId) {
+          const { data: cData } = await supabase
+            .from('clinics')
+            .select('name')
+            .eq('id', clinicId)
+            .maybeSingle();
+
+          if (cData?.name) clinicName = cData.name;
+        }
+      } catch (pErr) {
+        console.warn('Error fetching user profile:', pErr);
+      }
+
+      // 2. Fetch entitlement status
+      let hasActiveSub = false;
+      try {
+        const { data: entData } = await supabase
+          .from('access_entitlements')
+          .select('status, clinic_id')
+          .eq('user_id', u.id)
+          .maybeSingle();
+
+        if (!clinicId && entData?.clinic_id) {
+          clinicId = entData.clinic_id;
+        }
+
+        hasActiveSub = entData?.status === 'active';
+      } catch (eErr) {
+        console.warn('Error fetching entitlement:', eErr);
+      }
+
+      // 3. Resolve or auto-create clinicId if missing
+      if (!clinicId) {
+        try {
+          const resolvedCid = await getActiveClinicId();
+          if (resolvedCid) clinicId = resolvedCid;
+        } catch (rErr) {
+          console.warn('Error resolving clinic ID:', rErr);
+        }
+      }
+
+      setUser({
+        id: u.id,
+        clinicId: clinicId,
+        fullName: meta.full_name || meta.name || userEmail.split('@')[0],
+        email: userEmail,
+        role: role,
+        clinicName: role === 'super_admin' ? 'Administração SaaS' : clinicName,
+      });
+
+      setSubscriptionStatus(role === 'super_admin' || hasActiveSub ? 'active' : 'pending');
+    };
+
     // Check active session on mount
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session?.user) {
-        const u = session.user;
-        const userEmail = u.email || '';
-        const meta = u.user_metadata || {};
-
-        // Query access entitlements table
-        supabase
-          .from('access_entitlements')
-          .select('status')
-          .eq('user_id', u.id)
-          .maybeSingle()
-          .then(({ data: entData }) => {
-            const active = entData?.status === 'active';
-            setUser({
-              id: u.id,
-              fullName: meta.full_name || meta.name || userEmail.split('@')[0],
-              email: userEmail,
-              role: 'clinic_admin',
-              clinicName: meta.clinic_name || 'Minha Clínica',
-            });
-            setSubscriptionStatus(active ? 'active' : 'pending');
-          });
+        fetchUserProfile(session.user);
       }
     });
 
     const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (session?.user) {
-        const u = session.user;
-        const userEmail = u.email || '';
-        const meta = u.user_metadata || {};
-
-        const { data: entData } = await supabase
-          .from('access_entitlements')
-          .select('status')
-          .eq('user_id', u.id)
-          .maybeSingle();
-
-        const active = entData?.status === 'active';
-        setUser({
-          id: u.id,
-          fullName: meta.full_name || meta.name || userEmail.split('@')[0],
-          email: userEmail,
-          role: 'clinic_admin',
-          clinicName: meta.clinic_name || 'Minha Clínica',
-        });
-        setSubscriptionStatus(active ? 'active' : 'pending');
+        fetchUserProfile(session.user);
       } else if (event === 'SIGNED_OUT') {
+        clearClinicIdCache();
         setUser(null);
         setSubscriptionStatus('pending');
       }
@@ -270,9 +315,11 @@ export default function App() {
     clinicName: string;
     clinicPhone: string;
     id?: string;
+    clinicId?: string;
   }) => {
     setUser({
       id: data.id,
+      clinicId: data.clinicId || data.id,
       fullName: data.fullName,
       email: data.email,
       role: 'clinic_admin',
@@ -282,15 +329,16 @@ export default function App() {
   };
 
   const handleLoginSuccess = (
-    userData: { id?: string; email: string; role: 'super_admin' | 'clinic_admin' },
+    userData: { id?: string; email: string; role: 'super_admin' | 'clinic_admin'; clinicId?: string; clinicName?: string },
     hasActiveSub: boolean
   ) => {
     setUser({
       id: userData.id,
-      fullName: userData.role === 'super_admin' ? 'Super Admin' : 'Usuário Clínica',
+      clinicId: userData.clinicId || userData.id,
+      fullName: userData.role === 'super_admin' ? 'Super Admin' : (userData.email.split('@')[0]),
       email: userData.email,
       role: userData.role,
-      clinicName: userData.role === 'super_admin' ? 'Administração SaaS' : 'Clínica Silva',
+      clinicName: userData.role === 'super_admin' ? 'Administração SaaS' : (userData.clinicName || 'Minha Clínica'),
     });
     setSubscriptionStatus(hasActiveSub ? 'active' : 'pending');
   };
@@ -323,6 +371,7 @@ export default function App() {
       '/configuracoes',
       '/perfil',
       '/admin',
+      '/super-admin',
       '/assinatura',
     ].includes(currentRoute) &&
     user &&
@@ -361,7 +410,9 @@ export default function App() {
               onLogout={handleLogout}
             />
           )}
-          {currentRoute === '/admin' && <AdminPage onNavigate={navigate} />}
+          {(currentRoute === '/admin' || currentRoute === '/super-admin') && (
+            <AdminPage onNavigate={navigate} currentUser={user} />
+          )}
           {currentRoute === '/assinatura' && (
             <SubscriptionPage
               onNavigate={navigate}
@@ -423,7 +474,9 @@ export default function App() {
             onUpdateSubscriptionStatus={setSubscriptionStatus}
           />
         )}
-        {currentRoute === '/admin' && <AdminPage onNavigate={navigate} />}
+        {(currentRoute === '/admin' || currentRoute === '/super-admin') && (
+          <AdminPage onNavigate={navigate} currentUser={user} />
+        )}
       </main>
 
       {/* Footer */}

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabaseServices, Transaction } from '../lib/supabaseServices';
-import { DollarSign, Plus, ArrowUpRight, ArrowDownRight, Wallet, Calendar, Trash2 } from 'lucide-react';
+import { DollarSign, Plus, ArrowUpRight, ArrowDownRight, Wallet, Calendar, Trash2, CheckCircle2, AlertCircle } from 'lucide-react';
 import { ConfirmModal } from '../components/ConfirmModal';
 
 export function FinancialPage() {
@@ -8,6 +8,8 @@ export function FinancialPage() {
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [successMsg, setSuccessMsg] = useState('');
+  const [errorMsg, setErrorMsg] = useState('');
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
 
@@ -23,39 +25,64 @@ export function FinancialPage() {
 
   const loadData = async () => {
     setLoading(true);
-    const data = await supabaseServices.getTransactions();
-    setTransactions(data);
-    setLoading(false);
+    try {
+      const data = await supabaseServices.getTransactions();
+      setTransactions(data);
+    } catch (err) {
+      console.error('Error loading transactions:', err);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!description) return;
+    if (!description.trim()) return;
 
     setSaving(true);
-    await supabaseServices.createTransaction({
-      clinicId: 'c1',
-      description,
-      type,
-      amount: Number(amount),
-      status: 'pago',
-      date,
-    });
+    setErrorMsg('');
 
-    setSaving(false);
-    setShowModal(false);
-    setDescription('');
-    setAmount(300);
-    loadData();
+    try {
+      await supabaseServices.createTransaction({
+        clinicId: '',
+        description: description.trim(),
+        type,
+        amount: Number(amount),
+        status: 'pago',
+        date,
+      });
+
+      setSuccessMsg('Transação registrada com sucesso.');
+      setTimeout(() => setSuccessMsg(''), 4000);
+      setShowModal(false);
+      setDescription('');
+      setAmount(300);
+      await loadData();
+    } catch (err: any) {
+      console.error('Erro ao criar transação:', err);
+      setErrorMsg(err.message || 'Não foi possível registrar a transação.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const confirmDelete = async () => {
     if (!deleteTargetId) return;
     setDeleting(true);
-    await supabaseServices.deleteTransaction(deleteTargetId);
-    setDeleting(false);
-    setDeleteTargetId(null);
-    loadData();
+    setErrorMsg('');
+
+    try {
+      await supabaseServices.deleteTransaction(deleteTargetId);
+      setDeleteTargetId(null);
+      setSuccessMsg('Transação excluída com sucesso.');
+      setTimeout(() => setSuccessMsg(''), 4000);
+      await loadData();
+    } catch (err: any) {
+      console.error('Erro ao excluir transação:', err);
+      setErrorMsg(err.message || 'Não foi possível excluir a transação.');
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const totalReceitas = transactions
@@ -81,13 +108,30 @@ export function FinancialPage() {
           </div>
         </div>
         <button
-          onClick={() => setShowModal(true)}
-          className="flex items-center gap-2 px-4 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-semibold rounded-xl transition cursor-pointer"
+          onClick={() => {
+            setErrorMsg('');
+            setShowModal(true);
+          }}
+          className="flex items-center gap-2 px-4 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-semibold rounded-xl transition cursor-pointer text-sm"
         >
           <Plus className="w-4 h-4" />
           Nova Transação
         </button>
       </div>
+
+      {successMsg && (
+        <div className="p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-emerald-400 text-sm flex items-center gap-2">
+          <CheckCircle2 className="w-5 h-5 flex-shrink-0" />
+          {successMsg}
+        </div>
+      )}
+
+      {errorMsg && !showModal && (
+        <div className="p-4 bg-rose-500/10 border border-rose-500/30 rounded-xl text-rose-400 text-sm flex items-center gap-2">
+          <AlertCircle className="w-5 h-5 flex-shrink-0" />
+          {errorMsg}
+        </div>
+      )}
 
       {/* Financial Overview Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -124,7 +168,7 @@ export function FinancialPage() {
 
       {/* Transactions Table */}
       {loading ? (
-        <div className="text-center py-12 text-slate-400">Carregando movimentações...</div>
+        <div className="text-center py-12 text-slate-400">Carregando movimentações do banco...</div>
       ) : transactions.length === 0 ? (
         <div className="text-center py-12 text-slate-500 bg-slate-800/40 border border-slate-700/60 rounded-2xl">
           Nenhuma movimentação lançada ainda.
@@ -148,20 +192,17 @@ export function FinancialPage() {
                     {t.type === 'receita' ? <ArrowUpRight className="w-4 h-4" /> : <ArrowDownRight className="w-4 h-4" />}
                   </div>
                   <div>
-                    <h4 className="font-medium text-white">{t.description}</h4>
-                    <span className="text-xs text-slate-400">{new Date(t.date).toLocaleDateString('pt-BR')}</span>
+                    <h4 className="font-semibold text-white">{t.description}</h4>
+                    <span className="text-xs text-slate-400">
+                      {new Date(t.date).toLocaleDateString('pt-BR')}
+                    </span>
                   </div>
                 </div>
 
                 <div className="flex items-center gap-4">
-                  <div
-                    className={`font-bold text-base ${
-                      t.type === 'receita' ? 'text-emerald-400' : 'text-rose-400'
-                    }`}
-                  >
-                    {t.type === 'receita' ? '+ ' : '- '}
-                    R$ {t.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                  </div>
+                  <span className={`font-bold ${t.type === 'receita' ? 'text-emerald-400' : 'text-rose-400'}`}>
+                    {t.type === 'receita' ? '+' : '-'} R$ {t.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                  </span>
                   <button
                     onClick={() => setDeleteTargetId(t.id)}
                     className="p-1.5 text-slate-500 hover:text-rose-400 rounded-lg hover:bg-slate-700/50 transition cursor-pointer"
@@ -185,6 +226,13 @@ export function FinancialPage() {
               <button onClick={() => setShowModal(false)} className="text-slate-400 hover:text-white">✕</button>
             </div>
 
+            {errorMsg && (
+              <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-rose-400 text-xs flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                <span>{errorMsg}</span>
+              </div>
+            )}
+
             <form onSubmit={handleCreate} className="space-y-4">
               <div>
                 <label className="block text-xs font-medium text-slate-300 mb-1">Tipo de Lançamento</label>
@@ -192,24 +240,24 @@ export function FinancialPage() {
                   <button
                     type="button"
                     onClick={() => setType('receita')}
-                    className={`py-2 rounded-xl text-xs font-semibold border transition ${
+                    className={`py-2 rounded-xl text-xs font-semibold border transition cursor-pointer ${
                       type === 'receita'
-                        ? 'bg-emerald-500 text-slate-950 border-emerald-400'
+                        ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500'
                         : 'bg-slate-900 text-slate-400 border-slate-700'
                     }`}
                   >
-                    + Receita
+                    Receita (Entrada)
                   </button>
                   <button
                     type="button"
                     onClick={() => setType('despesa')}
-                    className={`py-2 rounded-xl text-xs font-semibold border transition ${
+                    className={`py-2 rounded-xl text-xs font-semibold border transition cursor-pointer ${
                       type === 'despesa'
-                        ? 'bg-rose-500 text-white border-rose-400'
+                        ? 'bg-rose-500/10 text-rose-400 border-rose-500'
                         : 'bg-slate-900 text-slate-400 border-slate-700'
                     }`}
                   >
-                    - Despesa
+                    Despesa (Saída)
                   </button>
                 </div>
               </div>
@@ -221,7 +269,7 @@ export function FinancialPage() {
                   required
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  placeholder="Ex: Recebimento de consulta, Conta de luz, Material"
+                  placeholder="Ex: Consulta Odontológica, Material de Consumo..."
                   className="w-full px-3.5 py-2 bg-slate-900 border border-slate-700 rounded-xl text-slate-100 text-sm focus:outline-none focus:border-emerald-500"
                 />
               </div>
@@ -263,18 +311,19 @@ export function FinancialPage() {
                   disabled={saving}
                   className="flex-1 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-semibold rounded-xl text-sm transition"
                 >
-                  {saving ? 'Registrando...' : 'Registrar'}
+                  {saving ? 'Lançando...' : 'Confirmar Lançamento'}
                 </button>
               </div>
             </form>
           </div>
         </div>
       )}
+
       {/* Modal - Confirmação de Exclusão */}
       <ConfirmModal
         isOpen={Boolean(deleteTargetId)}
-        title="Excluir Transação"
-        message="Tem certeza que deseja excluir este lançamento financeiro?"
+        title="Excluir Lançamento"
+        message="Tem certeza que deseja excluir esta movimentação financeira do banco de dados?"
         loading={deleting}
         onConfirm={confirmDelete}
         onClose={() => setDeleteTargetId(null)}

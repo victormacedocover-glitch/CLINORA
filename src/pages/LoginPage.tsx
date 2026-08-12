@@ -15,6 +15,7 @@ import {
   MessageCircle,
 } from 'lucide-react';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
+import { clearClinicIdCache, getActiveClinicId } from '../lib/supabaseServices';
 
 interface LoginPageProps {
   onNavigate: (route: string) => void;
@@ -42,6 +43,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    clearClinicIdCache();
 
     const cleanEmail = email.trim().toLowerCase();
 
@@ -85,14 +87,33 @@ export const LoginPage: React.FC<LoginPageProps> = ({
 
         const userId = authData.user?.id;
 
-        // Query entitlement & clinic status from Supabase database
+        // Query entitlement & profile/clinic status from Supabase database
         let hasActiveSub = false;
+        let userRole: 'super_admin' | 'clinic_admin' = 'clinic_admin';
+        let userClinicId: string | undefined = undefined;
+        let userClinicName: string | undefined = undefined;
+
         if (userId) {
+          const { data: profileData } = await supabase
+            .from('profiles')
+            .select('role, clinic_id')
+            .eq('user_id', userId)
+            .maybeSingle();
+
+          if (profileData) {
+            if (profileData.role) userRole = profileData.role as any;
+            if (profileData.clinic_id) userClinicId = profileData.clinic_id;
+          }
+
           const { data: entData } = await supabase
             .from('access_entitlements')
             .select('status, clinic_id')
             .eq('user_id', userId)
             .maybeSingle();
+
+          if (!userClinicId && entData?.clinic_id) {
+            userClinicId = entData.clinic_id;
+          }
 
           // Check if blocked
           if (entData?.status === 'blocked') {
@@ -101,11 +122,11 @@ export const LoginPage: React.FC<LoginPageProps> = ({
             return;
           }
 
-          if (entData?.clinic_id) {
+          if (userClinicId) {
             const { data: clinicData } = await supabase
               .from('clinics')
-              .select('status')
-              .eq('id', entData.clinic_id)
+              .select('status, name')
+              .eq('id', userClinicId)
               .maybeSingle();
 
             if (clinicData?.status === 'blocked') {
@@ -113,14 +134,30 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               setLoading(false);
               return;
             }
+            if (clinicData?.name) {
+              userClinicName = clinicData.name;
+            }
           }
 
           if (entData && entData.status === 'active') {
             hasActiveSub = true;
           }
+
+          if (!userClinicId) {
+            userClinicId = (await getActiveClinicId()) || undefined;
+          }
         }
 
-        onLoginSuccess({ id: userId, email: cleanEmail, role: 'clinic_admin' }, hasActiveSub);
+        onLoginSuccess(
+          {
+            id: userId,
+            email: cleanEmail,
+            role: userRole,
+            clinicId: userClinicId,
+            clinicName: userClinicName,
+          },
+          hasActiveSub
+        );
 
         if (hasActiveSub) {
           onNavigate('/dashboard');

@@ -63,6 +63,7 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
 
     try {
       let createdUserId: string | undefined = undefined;
+      let createdClinicId: string | undefined = undefined;
 
       if (isSupabaseConfigured) {
         // 1. Real Supabase Auth SignUp
@@ -100,7 +101,6 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
         }
 
         // 2. Call RPC create_initial_clinic as required
-        let clinicId: string | null = null;
         try {
           const { data: rpcData, error: rpcErr } = await supabase.rpc('create_initial_clinic', {
             p_name: clinicName,
@@ -112,10 +112,43 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
           if (rpcErr) {
             console.error('Erro na RPC create_initial_clinic:', rpcErr);
           } else {
-            clinicId = typeof rpcData === 'string' ? rpcData : rpcData?.id || rpcData?.clinic_id || null;
+            createdClinicId = typeof rpcData === 'string' ? rpcData : rpcData?.id || rpcData?.clinic_id || undefined;
           }
         } catch (rpcExecErr) {
           console.error('Exceção ao chamar create_initial_clinic:', rpcExecErr);
+        }
+
+        // Direct fallback creation if RPC did not return a clinic ID
+        if (createdUserId && !createdClinicId) {
+          try {
+            const { data: newClinic } = await supabase
+              .from('clinics')
+              .insert({
+                name: clinicName,
+                phone: clinicPhone,
+                email: cleanEmail,
+                status: 'active',
+              })
+              .select('id')
+              .single();
+
+            if (newClinic?.id) {
+              createdClinicId = newClinic.id;
+
+              await supabase.from('profiles').upsert(
+                {
+                  user_id: createdUserId,
+                  clinic_id: createdClinicId,
+                  full_name: fullName,
+                  email: cleanEmail,
+                  role: 'clinic_admin',
+                },
+                { onConflict: 'user_id' }
+              );
+            }
+          } catch (fErr) {
+            console.error('Fallback clinic creation error:', fErr);
+          }
         }
 
         // 3. Create initial access entitlement with status 'pending'
@@ -124,7 +157,7 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
             await supabase.from('access_entitlements').upsert(
               {
                 user_id: createdUserId,
-                clinic_id: clinicId || null,
+                clinic_id: createdClinicId || null,
                 status: 'pending',
                 access_type: 'lifetime',
               },
@@ -161,6 +194,7 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
         clinicName,
         clinicPhone,
         id: createdUserId,
+        clinicId: createdClinicId,
       });
 
       // Redirect immediately to checkout for payment
