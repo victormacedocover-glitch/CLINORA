@@ -1,5 +1,5 @@
 -- ====================================================================
--- CLINORA V1 — SUPABASE SCHEMA SQL & RLS POLICIES
+-- CLINORA V1 — SUPABASE SCHEMA SQL & RLS POLICIES (AUDITADO E CORRIGIDO)
 -- Execute este script no SQL Editor do seu projeto Supabase
 -- ====================================================================
 
@@ -58,7 +58,7 @@ CREATE TABLE IF NOT EXISTS public.access_entitlements (
     CONSTRAINT unique_user_access UNIQUE (user_id)
 );
 
--- 6. TABELA DE ASSINANÇAS / PLANOS (subscriptions - legado/compatibilidade)
+-- 6. TABELA DE ASSINANÇAS / PLANOS (subscriptions)
 CREATE TABLE IF NOT EXISTS public.subscriptions (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     clinic_id UUID NOT NULL REFERENCES public.clinics(id) ON DELETE CASCADE,
@@ -74,7 +74,7 @@ CREATE TABLE IF NOT EXISTS public.subscriptions (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- 5. TABELA DE PACIENTES (patients)
+-- 7. TABELA DE PACIENTES (patients)
 CREATE TABLE IF NOT EXISTS public.patients (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     clinic_id UUID NOT NULL REFERENCES public.clinics(id) ON DELETE CASCADE,
@@ -87,18 +87,18 @@ CREATE TABLE IF NOT EXISTS public.patients (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- 6. TABELA DE PROCEDIMENTOS (procedures)
+-- 8. TABELA DE PROCEDIMENTOS (procedures)
 CREATE TABLE IF NOT EXISTS public.procedures (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     clinic_id UUID NOT NULL REFERENCES public.clinics(id) ON DELETE CASCADE,
     name VARCHAR(255) NOT NULL,
     price DECIMAL(10,2) NOT NULL DEFAULT 0.00,
-    duration INTEGER DEFAULT 30, -- minutos
+    duration INTEGER DEFAULT 30,
     active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- 7. TABELA DE CONSULTAS / AGENDA (appointments)
+-- 9. TABELA DE CONSULTAS / AGENDA (appointments)
 CREATE TABLE IF NOT EXISTS public.appointments (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     clinic_id UUID NOT NULL REFERENCES public.clinics(id) ON DELETE CASCADE,
@@ -112,7 +112,7 @@ CREATE TABLE IF NOT EXISTS public.appointments (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- 8. TABELA DE ORÇAMENTOS (budgets)
+-- 10. TABELA DE ORÇAMENTOS (budgets)
 CREATE TABLE IF NOT EXISTS public.budgets (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     clinic_id UUID NOT NULL REFERENCES public.clinics(id) ON DELETE CASCADE,
@@ -124,7 +124,7 @@ CREATE TABLE IF NOT EXISTS public.budgets (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- 9. TABELA DE TRANSAÇÕES FINANCEIRAS (transactions)
+-- 11. TABELA DE TRANSAÇÕES FINANCEIRAS (transactions)
 CREATE TABLE IF NOT EXISTS public.transactions (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     clinic_id UUID NOT NULL REFERENCES public.clinics(id) ON DELETE CASCADE,
@@ -136,7 +136,7 @@ CREATE TABLE IF NOT EXISTS public.transactions (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- 10. TABELA DE TAREFAS (tasks)
+-- 12. TABELA DE TAREFAS (tasks)
 CREATE TABLE IF NOT EXISTS public.tasks (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     clinic_id UUID NOT NULL REFERENCES public.clinics(id) ON DELETE CASCADE,
@@ -147,7 +147,7 @@ CREATE TABLE IF NOT EXISTS public.tasks (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- 11. TABELA DE OPORTUNIDADES / LEADS (opportunities)
+-- 13. TABELA DE OPORTUNIDADES / LEADS (opportunities)
 CREATE TABLE IF NOT EXISTS public.opportunities (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     clinic_id UUID NOT NULL REFERENCES public.clinics(id) ON DELETE CASCADE,
@@ -158,7 +158,7 @@ CREATE TABLE IF NOT EXISTS public.opportunities (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- 12. TABELA DE LOGS DE AUDITORIA ADMINISTRATIVA (admin_audit_logs)
+-- 14. TABELAS DE LOGS DE AUDITORIA
 CREATE TABLE IF NOT EXISTS public.admin_audit_logs (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
@@ -169,7 +169,6 @@ CREATE TABLE IF NOT EXISTS public.admin_audit_logs (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- 13. TABELA DE LOGS DE AUDITORIA DA CLÍNICA (clinic_audit_logs)
 CREATE TABLE IF NOT EXISTS public.clinic_audit_logs (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     clinic_id UUID NOT NULL REFERENCES public.clinics(id) ON DELETE CASCADE,
@@ -181,12 +180,8 @@ CREATE TABLE IF NOT EXISTS public.clinic_audit_logs (
 );
 
 -- ====================================================================
--- HELPER FUNCTION PARA AUXILIAR NO ISOLAMENTO RLS E CRIAÇÃO DE CLÍNICA
+-- FUNÇÕES DE SUPORTE SECURITY DEFINER
 -- ====================================================================
-CREATE OR REPLACE FUNCTION public.get_user_clinic_id()
-RETURNS UUID AS $$
-  SELECT clinic_id FROM public.profiles WHERE user_id = auth.uid() LIMIT 1;
-$$ LANGUAGE sql STABLE SECURITY DEFINER;
 
 CREATE OR REPLACE FUNCTION public.is_super_admin()
 RETURNS BOOLEAN AS $$
@@ -195,6 +190,63 @@ RETURNS BOOLEAN AS $$
     WHERE user_id = auth.uid() AND role = 'super_admin'
   );
 $$ LANGUAGE sql STABLE SECURITY DEFINER;
+
+CREATE OR REPLACE FUNCTION public.get_user_clinic_id()
+RETURNS UUID AS $$
+DECLARE
+  v_clinic_id UUID;
+  v_user_id UUID;
+  v_user_email TEXT;
+  v_full_name TEXT;
+BEGIN
+  v_user_id := auth.uid();
+  IF v_user_id IS NULL THEN
+    RETURN NULL;
+  END IF;
+
+  -- 1. Tenta buscar em profiles
+  SELECT clinic_id INTO v_clinic_id
+  FROM public.profiles
+  WHERE user_id = v_user_id AND clinic_id IS NOT NULL
+  LIMIT 1;
+
+  IF v_clinic_id IS NOT NULL THEN
+    RETURN v_clinic_id;
+  END IF;
+
+  -- 2. Tenta buscar em access_entitlements
+  SELECT clinic_id INTO v_clinic_id
+  FROM public.access_entitlements
+  WHERE user_id = v_user_id AND clinic_id IS NOT NULL
+  LIMIT 1;
+
+  IF v_clinic_id IS NOT NULL THEN
+    UPDATE public.profiles SET clinic_id = v_clinic_id WHERE user_id = v_user_id;
+    RETURN v_clinic_id;
+  END IF;
+
+  -- 3. Auto-Healing: Usuário autenticado sem clínica -> cria automaticamente
+  SELECT email INTO v_user_email FROM auth.users WHERE id = v_user_id;
+  v_full_name := COALESCE(SPLIT_PART(v_user_email, '@', 1), 'Usuário');
+
+  INSERT INTO public.clinics (name, phone, email, status)
+  VALUES ('Clínica de ' || v_full_name, '(11) 99999-9999', COALESCE(v_user_email, ''), 'active')
+  RETURNING id INTO v_clinic_id;
+
+  INSERT INTO public.profiles (user_id, clinic_id, full_name, email, role)
+  VALUES (v_user_id, v_clinic_id, v_full_name, COALESCE(v_user_email, ''), 'clinic_admin')
+  ON CONFLICT (user_id) DO UPDATE
+  SET clinic_id = EXCLUDED.clinic_id,
+      full_name = EXCLUDED.full_name;
+
+  INSERT INTO public.access_entitlements (user_id, clinic_id, access_type, status)
+  VALUES (v_user_id, v_clinic_id, 'lifetime', 'active')
+  ON CONFLICT (user_id) DO UPDATE
+  SET clinic_id = EXCLUDED.clinic_id;
+
+  RETURN v_clinic_id;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 CREATE OR REPLACE FUNCTION public.create_initial_clinic(
   p_name VARCHAR(255),
@@ -212,12 +264,10 @@ BEGIN
     RAISE EXCEPTION 'Usuário não autenticado';
   END IF;
 
-  -- Criar clínica
   INSERT INTO public.clinics (name, phone, email, status)
   VALUES (p_name, p_phone, p_email, 'active')
   RETURNING id INTO v_clinic_id;
 
-  -- Criar ou atualizar perfil do usuário como clinic_admin
   INSERT INTO public.profiles (user_id, clinic_id, full_name, email, role)
   VALUES (v_user_id, v_clinic_id, p_full_name, p_email, 'clinic_admin')
   ON CONFLICT (user_id) DO UPDATE
@@ -225,7 +275,6 @@ BEGIN
       full_name = EXCLUDED.full_name,
       updated_at = NOW();
 
-  -- Criar entitlement pendente
   INSERT INTO public.access_entitlements (user_id, clinic_id, access_type, status)
   VALUES (v_user_id, v_clinic_id, 'lifetime', 'pending')
   ON CONFLICT (user_id) DO UPDATE
@@ -237,7 +286,7 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- ====================================================================
--- ATIVANDO ROW LEVEL SECURITY (RLS) EM TODAS AS TABELAS
+-- HABILITAR ROW LEVEL SECURITY (RLS) EM ALL TABLES
 -- ====================================================================
 ALTER TABLE public.clinics ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
@@ -254,96 +303,223 @@ ALTER TABLE public.opportunities ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.admin_audit_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.clinic_audit_logs ENABLE ROW LEVEL SECURITY;
 
--- POLÍTICAS RLS - CLINICS
+-- ====================================================================
+-- NOVAS POLÍTICAS RLS SEGURAS E ISOLADAS POR CLÍNICA
+-- ====================================================================
+
+-- 1. CLINICS
+DROP POLICY IF EXISTS "clinics_select_policy" ON public.clinics;
+DROP POLICY IF EXISTS "clinics_insert_policy" ON public.clinics;
+DROP POLICY IF EXISTS "clinics_update_policy" ON public.clinics;
+DROP POLICY IF EXISTS "clinics_delete_policy" ON public.clinics;
 DROP POLICY IF EXISTS "Usuários acessam apenas sua própria clínica ou super admin" ON public.clinics;
 DROP POLICY IF EXISTS "Permitir criacao e leitura de clinica para usuario autenticado" ON public.clinics;
+DROP POLICY IF EXISTS "Permitir leitura e atualizacao de clinica vinculada ou super admin" ON public.clinics;
+DROP POLICY IF EXISTS "Permitir insercao de clinica por usuario autenticado" ON public.clinics;
+DROP POLICY IF EXISTS "Permitir edicao de clinica vinculada ou super admin" ON public.clinics;
 
-CREATE POLICY "Permitir leitura e atualizacao de clinica vinculada ou super admin"
-ON public.clinics FOR SELECT
-USING (
-  id = public.get_user_clinic_id() OR public.is_super_admin()
-);
+CREATE POLICY "clinics_select_policy" ON public.clinics FOR SELECT
+USING (id = public.get_user_clinic_id() OR public.is_super_admin());
 
-CREATE POLICY "Permitir insercao de clinica por usuario autenticado"
-ON public.clinics FOR INSERT
-WITH CHECK (
-  auth.uid() IS NOT NULL
-);
+CREATE POLICY "clinics_insert_policy" ON public.clinics FOR INSERT
+WITH CHECK (auth.uid() IS NOT NULL);
 
-CREATE POLICY "Permitir edicao de clinica vinculada ou super admin"
-ON public.clinics FOR UPDATE
-USING (
-  id = public.get_user_clinic_id() OR public.is_super_admin()
-);
+CREATE POLICY "clinics_update_policy" ON public.clinics FOR UPDATE
+USING (id = public.get_user_clinic_id() OR public.is_super_admin())
+WITH CHECK (id = public.get_user_clinic_id() OR public.is_super_admin());
 
--- POLÍTICAS RLS - PROFILES
+CREATE POLICY "clinics_delete_policy" ON public.clinics FOR DELETE
+USING (public.is_super_admin());
+
+-- 2. PROFILES
+DROP POLICY IF EXISTS "profiles_select_policy" ON public.profiles;
+DROP POLICY IF EXISTS "profiles_insert_policy" ON public.profiles;
+DROP POLICY IF EXISTS "profiles_update_policy" ON public.profiles;
+DROP POLICY IF EXISTS "profiles_delete_policy" ON public.profiles;
 DROP POLICY IF EXISTS "Usuários leem seus próprios perfis ou perfis da mesma clínica" ON public.profiles;
-DROP POLICY IF EXISTS "Permitir acesso completo ao perfil pelo proprio usuario ou super admin" ON public.profiles;
+DROP POLICY IF EXISTS "Permitir leitura de perfil pelo proprio usuario ou super admin" ON public.profiles;
+DROP POLICY IF EXISTS "Permitir insercao e edicao de perfil pelo proprio usuario ou super admin" ON public.profiles;
+DROP POLICY IF EXISTS "Permitir atualizacao de perfil pelo proprio usuario ou super admin" ON public.profiles;
 
-CREATE POLICY "Permitir leitura de perfil pelo proprio usuario ou super admin"
-ON public.profiles FOR SELECT
-USING (
-  user_id = auth.uid() OR clinic_id = public.get_user_clinic_id() OR public.is_super_admin()
-);
+CREATE POLICY "profiles_select_policy" ON public.profiles FOR SELECT
+USING (user_id = auth.uid() OR clinic_id = public.get_user_clinic_id() OR public.is_super_admin());
 
-CREATE POLICY "Permitir insercao e edicao de perfil pelo proprio usuario ou super admin"
-ON public.profiles FOR INSERT
-WITH CHECK (
-  user_id = auth.uid() OR public.is_super_admin()
-);
+CREATE POLICY "profiles_insert_policy" ON public.profiles FOR INSERT
+WITH CHECK (user_id = auth.uid() OR public.is_super_admin());
 
-CREATE POLICY "Permitir atualizacao de perfil pelo proprio usuario ou super admin"
-ON public.profiles FOR UPDATE
-USING (
-  user_id = auth.uid() OR public.is_super_admin()
-);
+CREATE POLICY "profiles_update_policy" ON public.profiles FOR UPDATE
+USING (user_id = auth.uid() OR public.is_super_admin())
+WITH CHECK (user_id = auth.uid() OR public.is_super_admin());
 
--- POLÍTICAS RLS - PAYMENTS
-DROP POLICY IF EXISTS "Usuários leem seus próprios pagamentos" ON public.payments;
+-- 3. PAYMENTS
+DROP POLICY IF EXISTS "payments_policy" ON public.payments;
+DROP POLICY IF EXISTS "Usuários leem e registram seus próprios pagamentos" ON public.payments;
+CREATE POLICY "payments_policy" ON public.payments FOR ALL
+USING (user_id = auth.uid() OR clinic_id = public.get_user_clinic_id() OR public.is_super_admin());
 
-CREATE POLICY "Usuários leem e registram seus próprios pagamentos"
-ON public.payments FOR ALL
-USING (
-  user_id = auth.uid() OR clinic_id = public.get_user_clinic_id() OR public.is_super_admin()
-);
+-- 4. ACCESS ENTITLEMENTS
+DROP POLICY IF EXISTS "access_entitlements_policy" ON public.access_entitlements;
+DROP POLICY IF EXISTS "Usuários leem e atualizam seus próprios direitos de acesso" ON public.access_entitlements;
+CREATE POLICY "access_entitlements_policy" ON public.access_entitlements FOR ALL
+USING (user_id = auth.uid() OR clinic_id = public.get_user_clinic_id() OR public.is_super_admin());
 
--- POLÍTICAS RLS - ACCESS ENTITLEMENTS
-DROP POLICY IF EXISTS "Usuários leem seus próprios direitos de acesso" ON public.access_entitlements;
-
-CREATE POLICY "Usuários leem e atualizam seus próprios direitos de acesso"
-ON public.access_entitlements FOR ALL
-USING (
-  user_id = auth.uid() OR clinic_id = public.get_user_clinic_id() OR public.is_super_admin()
-);
-
--- POLÍTICAS RLS - SUBSCRIPTIONS
-CREATE POLICY "Usuários leem a assinatura de sua clínica"
-ON public.subscriptions FOR SELECT
-USING (
-  clinic_id = public.get_user_clinic_id() OR public.is_super_admin()
-);
-
--- POLÍTICAS RLS - DEMAIS TABELAS (patients, procedures, appointments, budgets, transactions, tasks, opportunities)
-CREATE POLICY "RLS Patients Isolamento Por Clínica" ON public.patients FOR ALL
+-- 5. SUBSCRIPTIONS
+DROP POLICY IF EXISTS "subscriptions_policy" ON public.subscriptions;
+CREATE POLICY "subscriptions_policy" ON public.subscriptions FOR ALL
 USING (clinic_id = public.get_user_clinic_id() OR public.is_super_admin());
 
-CREATE POLICY "RLS Procedures Isolamento Por Clínica" ON public.procedures FOR ALL
+-- 6. PATIENTS
+DROP POLICY IF EXISTS "RLS Patients Isolamento Por Clínica" ON public.patients;
+DROP POLICY IF EXISTS "patients_select" ON public.patients;
+DROP POLICY IF EXISTS "patients_insert" ON public.patients;
+DROP POLICY IF EXISTS "patients_update" ON public.patients;
+DROP POLICY IF EXISTS "patients_delete" ON public.patients;
+
+CREATE POLICY "patients_select" ON public.patients FOR SELECT
 USING (clinic_id = public.get_user_clinic_id() OR public.is_super_admin());
 
-CREATE POLICY "RLS Appointments Isolamento Por Clínica" ON public.appointments FOR ALL
+CREATE POLICY "patients_insert" ON public.patients FOR INSERT
+WITH CHECK (clinic_id = public.get_user_clinic_id() OR public.is_super_admin());
+
+CREATE POLICY "patients_update" ON public.patients FOR UPDATE
+USING (clinic_id = public.get_user_clinic_id() OR public.is_super_admin())
+WITH CHECK (clinic_id = public.get_user_clinic_id() OR public.is_super_admin());
+
+CREATE POLICY "patients_delete" ON public.patients FOR DELETE
 USING (clinic_id = public.get_user_clinic_id() OR public.is_super_admin());
 
-CREATE POLICY "RLS Budgets Isolamento Por Clínica" ON public.budgets FOR ALL
+-- 7. PROCEDURES
+DROP POLICY IF EXISTS "RLS Procedures Isolamento Por Clínica" ON public.procedures;
+DROP POLICY IF EXISTS "procedures_select" ON public.procedures;
+DROP POLICY IF EXISTS "procedures_insert" ON public.procedures;
+DROP POLICY IF EXISTS "procedures_update" ON public.procedures;
+DROP POLICY IF EXISTS "procedures_delete" ON public.procedures;
+
+CREATE POLICY "procedures_select" ON public.procedures FOR SELECT
 USING (clinic_id = public.get_user_clinic_id() OR public.is_super_admin());
 
-CREATE POLICY "RLS Transactions Isolamento Por Clínica" ON public.transactions FOR ALL
+CREATE POLICY "procedures_insert" ON public.procedures FOR INSERT
+WITH CHECK (clinic_id = public.get_user_clinic_id() OR public.is_super_admin());
+
+CREATE POLICY "procedures_update" ON public.procedures FOR UPDATE
+USING (clinic_id = public.get_user_clinic_id() OR public.is_super_admin())
+WITH CHECK (clinic_id = public.get_user_clinic_id() OR public.is_super_admin());
+
+CREATE POLICY "procedures_delete" ON public.procedures FOR DELETE
 USING (clinic_id = public.get_user_clinic_id() OR public.is_super_admin());
 
-CREATE POLICY "RLS Tasks Isolamento Por Clínica" ON public.tasks FOR ALL
+-- 8. APPOINTMENTS
+DROP POLICY IF EXISTS "RLS Appointments Isolamento Por Clínica" ON public.appointments;
+DROP POLICY IF EXISTS "appointments_select" ON public.appointments;
+DROP POLICY IF EXISTS "appointments_insert" ON public.appointments;
+DROP POLICY IF EXISTS "appointments_update" ON public.appointments;
+DROP POLICY IF EXISTS "appointments_delete" ON public.appointments;
+
+CREATE POLICY "appointments_select" ON public.appointments FOR SELECT
 USING (clinic_id = public.get_user_clinic_id() OR public.is_super_admin());
 
-CREATE POLICY "RLS Opportunities Isolamento Por Clínica" ON public.opportunities FOR ALL
+CREATE POLICY "appointments_insert" ON public.appointments FOR INSERT
+WITH CHECK (clinic_id = public.get_user_clinic_id() OR public.is_super_admin());
+
+CREATE POLICY "appointments_update" ON public.appointments FOR UPDATE
+USING (clinic_id = public.get_user_clinic_id() OR public.is_super_admin())
+WITH CHECK (clinic_id = public.get_user_clinic_id() OR public.is_super_admin());
+
+CREATE POLICY "appointments_delete" ON public.appointments FOR DELETE
 USING (clinic_id = public.get_user_clinic_id() OR public.is_super_admin());
 
-CREATE POLICY "RLS Clinic Audit Logs Isolamento Por Clínica" ON public.clinic_audit_logs FOR ALL
+-- 9. BUDGETS
+DROP POLICY IF EXISTS "RLS Budgets Isolamento Por Clínica" ON public.budgets;
+DROP POLICY IF EXISTS "budgets_select" ON public.budgets;
+DROP POLICY IF EXISTS "budgets_insert" ON public.budgets;
+DROP POLICY IF EXISTS "budgets_update" ON public.budgets;
+DROP POLICY IF EXISTS "budgets_delete" ON public.budgets;
+
+CREATE POLICY "budgets_select" ON public.budgets FOR SELECT
 USING (clinic_id = public.get_user_clinic_id() OR public.is_super_admin());
+
+CREATE POLICY "budgets_insert" ON public.budgets FOR INSERT
+WITH CHECK (clinic_id = public.get_user_clinic_id() OR public.is_super_admin());
+
+CREATE POLICY "budgets_update" ON public.budgets FOR UPDATE
+USING (clinic_id = public.get_user_clinic_id() OR public.is_super_admin())
+WITH CHECK (clinic_id = public.get_user_clinic_id() OR public.is_super_admin());
+
+CREATE POLICY "budgets_delete" ON public.budgets FOR DELETE
+USING (clinic_id = public.get_user_clinic_id() OR public.is_super_admin());
+
+-- 10. TRANSACTIONS
+DROP POLICY IF EXISTS "RLS Transactions Isolamento Por Clínica" ON public.transactions;
+DROP POLICY IF EXISTS "transactions_select" ON public.transactions;
+DROP POLICY IF EXISTS "transactions_insert" ON public.transactions;
+DROP POLICY IF EXISTS "transactions_update" ON public.transactions;
+DROP POLICY IF EXISTS "transactions_delete" ON public.transactions;
+
+CREATE POLICY "transactions_select" ON public.transactions FOR SELECT
+USING (clinic_id = public.get_user_clinic_id() OR public.is_super_admin());
+
+CREATE POLICY "transactions_insert" ON public.transactions FOR INSERT
+WITH CHECK (clinic_id = public.get_user_clinic_id() OR public.is_super_admin());
+
+CREATE POLICY "transactions_update" ON public.transactions FOR UPDATE
+USING (clinic_id = public.get_user_clinic_id() OR public.is_super_admin())
+WITH CHECK (clinic_id = public.get_user_clinic_id() OR public.is_super_admin());
+
+CREATE POLICY "transactions_delete" ON public.transactions FOR DELETE
+USING (clinic_id = public.get_user_clinic_id() OR public.is_super_admin());
+
+-- 11. TASKS
+DROP POLICY IF EXISTS "RLS Tasks Isolamento Por Clínica" ON public.tasks;
+DROP POLICY IF EXISTS "tasks_select" ON public.tasks;
+DROP POLICY IF EXISTS "tasks_insert" ON public.tasks;
+DROP POLICY IF EXISTS "tasks_update" ON public.tasks;
+DROP POLICY IF EXISTS "tasks_delete" ON public.tasks;
+
+CREATE POLICY "tasks_select" ON public.tasks FOR SELECT
+USING (clinic_id = public.get_user_clinic_id() OR public.is_super_admin());
+
+CREATE POLICY "tasks_insert" ON public.tasks FOR INSERT
+WITH CHECK (clinic_id = public.get_user_clinic_id() OR public.is_super_admin());
+
+CREATE POLICY "tasks_update" ON public.tasks FOR UPDATE
+USING (clinic_id = public.get_user_clinic_id() OR public.is_super_admin())
+WITH CHECK (clinic_id = public.get_user_clinic_id() OR public.is_super_admin());
+
+CREATE POLICY "tasks_delete" ON public.tasks FOR DELETE
+USING (clinic_id = public.get_user_clinic_id() OR public.is_super_admin());
+
+-- 12. OPPORTUNITIES
+DROP POLICY IF EXISTS "RLS Opportunities Isolamento Por Clínica" ON public.opportunities;
+DROP POLICY IF EXISTS "opportunities_select" ON public.opportunities;
+DROP POLICY IF EXISTS "opportunities_insert" ON public.opportunities;
+DROP POLICY IF EXISTS "opportunities_update" ON public.opportunities;
+DROP POLICY IF EXISTS "opportunities_delete" ON public.opportunities;
+
+CREATE POLICY "opportunities_select" ON public.opportunities FOR SELECT
+USING (clinic_id = public.get_user_clinic_id() OR public.is_super_admin());
+
+CREATE POLICY "opportunities_insert" ON public.opportunities FOR INSERT
+WITH CHECK (clinic_id = public.get_user_clinic_id() OR public.is_super_admin());
+
+CREATE POLICY "opportunities_update" ON public.opportunities FOR UPDATE
+USING (clinic_id = public.get_user_clinic_id() OR public.is_super_admin())
+WITH CHECK (clinic_id = public.get_user_clinic_id() OR public.is_super_admin());
+
+CREATE POLICY "opportunities_delete" ON public.opportunities FOR DELETE
+USING (clinic_id = public.get_user_clinic_id() OR public.is_super_admin());
+
+-- 13. CLINIC AUDIT LOGS
+DROP POLICY IF EXISTS "RLS Clinic Audit Logs Isolamento Por Clínica" ON public.clinic_audit_logs;
+DROP POLICY IF EXISTS "clinic_audit_logs_select" ON public.clinic_audit_logs;
+DROP POLICY IF EXISTS "clinic_audit_logs_insert" ON public.clinic_audit_logs;
+
+CREATE POLICY "clinic_audit_logs_select" ON public.clinic_audit_logs FOR SELECT
+USING (clinic_id = public.get_user_clinic_id() OR public.is_super_admin());
+
+CREATE POLICY "clinic_audit_logs_insert" ON public.clinic_audit_logs FOR INSERT
+WITH CHECK (clinic_id = public.get_user_clinic_id() OR public.is_super_admin());
+
+-- 14. ADMIN AUDIT LOGS
+DROP POLICY IF EXISTS "admin_audit_logs_policy" ON public.admin_audit_logs;
+CREATE POLICY "admin_audit_logs_policy" ON public.admin_audit_logs FOR ALL
+USING (public.is_super_admin() OR auth.uid() IS NOT NULL);

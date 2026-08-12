@@ -120,6 +120,17 @@ export async function getActiveClinicId(): Promise<string | null> {
           return cachedClinicId.clinicId;
         }
 
+        // 0. Call SQL function get_user_clinic_id directly (guarantees server-side alignment & auto-healing)
+        try {
+          const { data: rpcCid, error: rpcErr } = await supabase.rpc('get_user_clinic_id');
+          if (!rpcErr && rpcCid) {
+            cachedClinicId = { userId: user.id, clinicId: rpcCid };
+            return rpcCid;
+          }
+        } catch (rpcEx) {
+          console.warn('RPC get_user_clinic_id attempt warning:', rpcEx);
+        }
+
         // 1. Check profiles table for clinic_id
         const { data: profile } = await supabase
           .from('profiles')
@@ -157,7 +168,6 @@ export async function getActiveClinicId(): Promise<string | null> {
         }
 
         // 3. Auto-heal: User is authenticated but no clinic exists in `public.clinics`.
-        // Automatically create clinic row for user and update profiles & access_entitlements.
         const clinicName =
           user.user_metadata?.clinic_name ||
           `Clínica de ${user.user_metadata?.full_name || user.email?.split('@')[0] || 'Clinora'}`;
