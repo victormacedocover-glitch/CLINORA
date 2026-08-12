@@ -230,7 +230,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate, currentUser })
           blocked: '✓ Usuário bloqueado com sucesso.',
         };
 
-        showToast(messages[newStatus] || 'Status atualizado com sucesso!', 'success');
+        showToast(data.message || messages[newStatus] || 'Status atualizado com sucesso!', 'success');
       } else {
         showToast(data.error || 'Erro ao atualizar status de acesso.', 'error');
       }
@@ -261,7 +261,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate, currentUser })
         if (selectedUser) {
           setSelectedUser((prev: any) => ({ ...prev, accessStatus: 'active' }));
         }
-        showToast('✓ Acesso ativado e liberado com sucesso!', 'success');
+        showToast(data.message || '✓ Acesso ativado e liberado com sucesso!', 'success');
       } else {
         showToast(data.error || 'Erro ao liberar acesso do usuário.', 'error');
       }
@@ -859,7 +859,18 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate, currentUser })
                       <tr key={user.id} className="hover:bg-slate-900/50 transition-colors">
                         <td className="p-3.5 font-medium">
                           <p className="font-bold text-white text-sm">{user.owner}</p>
-                          <p className="text-slate-400 font-mono text-[11px]">{user.email}</p>
+                          <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
+                            <span className="text-slate-400 font-mono text-[11px]">{user.email}</span>
+                            {user.emailConfirmed ? (
+                              <span className="inline-flex items-center text-[9px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-1.5 py-0.2 rounded" title="E-mail confirmado no Supabase Auth">
+                                ✓ E-mail Confirmado
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center text-[9px] font-bold text-amber-400 bg-amber-500/10 border border-amber-500/30 px-1.5 py-0.2 rounded" title="E-mail não confirmado no Supabase Auth (será confirmado ao ativar ou redefinir senha)">
+                                ⚠ Não Confirmado
+                              </span>
+                            )}
+                          </div>
                         </td>
                         <td className="p-3.5 font-semibold text-slate-200">
                           {user.clinicName}

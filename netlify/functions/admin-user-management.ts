@@ -142,6 +142,8 @@ export async function handler(event: any) {
           phone: clinic?.phone || '',
           accessStatus: accessStatus, // 'active' | 'pending' | 'blocked'
           subscriptionStatus: paymentStatus, // 'approved' | 'pending' | 'cancelled' | 'rejected'
+          emailConfirmed: !!authUser?.email_confirmed_at,
+          emailConfirmedAt: authUser?.email_confirmed_at || null,
           paymentDetails: userPayment
             ? {
                 id: userPayment.id,
@@ -179,6 +181,8 @@ export async function handler(event: any) {
             phone: au.user_metadata?.clinic_phone || '',
             accessStatus: entitlement?.status || 'pending',
             subscriptionStatus: userPayment?.status || 'pending',
+            emailConfirmed: !!au.email_confirmed_at,
+            emailConfirmedAt: au.email_confirmed_at || null,
             paymentDetails: userPayment
               ? {
                   id: userPayment.id,
@@ -318,6 +322,40 @@ export async function handler(event: any) {
         if (prof) {
           effectiveUserId = prof.user_id;
           if (!effectiveClinicId) effectiveClinicId = prof.clinic_id;
+        } else {
+          try {
+            const { data: authList } = await supabase.auth.admin.listUsers();
+            const found = authList?.users?.find((u: any) => u.email?.toLowerCase() === targetEmail.toLowerCase());
+            if (found) effectiveUserId = found.id;
+          } catch (e) {
+            console.warn('Error searching auth user by email:', e);
+          }
+        }
+      }
+
+      let emailConfirmedByAdmin = false;
+      let emailAlreadyConfirmed = false;
+
+      // When activating user access, check and confirm user's email in Supabase Auth if needed
+      if (newStatus === 'active' && effectiveUserId) {
+        try {
+          const { data: userData, error: getUserErr } = await supabase.auth.admin.getUserById(effectiveUserId);
+          if (!getUserErr && userData?.user) {
+            if (userData.user.email_confirmed_at) {
+              emailAlreadyConfirmed = true;
+            } else {
+              const { error: confirmErr } = await supabase.auth.admin.updateUserById(effectiveUserId, {
+                email_confirm: true,
+              });
+              if (!confirmErr) {
+                emailConfirmedByAdmin = true;
+              } else {
+                console.warn('Erro ao confirmar e-mail no Auth Admin:', confirmErr);
+              }
+            }
+          }
+        } catch (err) {
+          console.warn('Exceção ao consultar/confirmar e-mail via Auth Admin:', err);
         }
       }
 
@@ -352,13 +390,20 @@ export async function handler(event: any) {
         blocked: 'BLOQUEADO',
       };
 
+      let emailNote = '';
+      if (emailConfirmedByAdmin) {
+        emailNote = ' (E-mail confirmado no Supabase Auth pelo Super Admin)';
+      } else if (emailAlreadyConfirmed) {
+        emailNote = ' (E-mail já estava confirmado no Supabase Auth)';
+      }
+
       try {
         await supabase.from('admin_audit_logs').insert({
           user_id: effectiveUserId || null,
           clinic_id: effectiveClinicId || null,
           admin_email: adminEmail || 'super_admin',
           action: `Acesso alterado para ${statusLabels[newStatus] || newStatus}`,
-          details: `Super Admin ${adminEmail} alterou o acesso do usuário (${targetEmail || effectiveUserId}) para ${newStatus.toUpperCase()}.`,
+          details: `Super Admin ${adminEmail} alterou o acesso do usuário (${targetEmail || effectiveUserId}) para ${newStatus.toUpperCase()}${emailNote}.`,
           created_at: new Date().toISOString(),
         });
       } catch (err) {
@@ -370,7 +415,11 @@ export async function handler(event: any) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           success: true,
-          message: `Status de acesso alterado para ${statusLabels[newStatus]} com sucesso.`,
+          emailConfirmedByAdmin,
+          emailAlreadyConfirmed,
+          message: emailConfirmedByAdmin
+            ? `Acesso ativado e e-mail do usuário confirmado no Supabase Auth com sucesso!`
+            : `Status de acesso alterado para ${statusLabels[newStatus]} com sucesso.`,
         }),
       };
     }
@@ -394,6 +443,40 @@ export async function handler(event: any) {
         if (prof) {
           effectiveUserId = prof.user_id;
           if (!effectiveClinicId) effectiveClinicId = prof.clinic_id;
+        } else {
+          try {
+            const { data: authList } = await supabase.auth.admin.listUsers();
+            const found = authList?.users?.find((u: any) => u.email?.toLowerCase() === targetEmail.toLowerCase());
+            if (found) effectiveUserId = found.id;
+          } catch (e) {
+            console.warn('Error searching auth user by email:', e);
+          }
+        }
+      }
+
+      let emailConfirmedByAdmin = false;
+      let emailAlreadyConfirmed = false;
+
+      // Check and confirm email in Supabase Auth
+      if (effectiveUserId) {
+        try {
+          const { data: userData, error: getUserErr } = await supabase.auth.admin.getUserById(effectiveUserId);
+          if (!getUserErr && userData?.user) {
+            if (userData.user.email_confirmed_at) {
+              emailAlreadyConfirmed = true;
+            } else {
+              const { error: confirmErr } = await supabase.auth.admin.updateUserById(effectiveUserId, {
+                email_confirm: true,
+              });
+              if (!confirmErr) {
+                emailConfirmedByAdmin = true;
+              } else {
+                console.warn('Erro ao confirmar e-mail no Auth Admin:', confirmErr);
+              }
+            }
+          }
+        } catch (err) {
+          console.warn('Exceção ao consultar/confirmar e-mail via Auth Admin:', err);
         }
       }
 
@@ -421,6 +504,13 @@ export async function handler(event: any) {
           .eq('id', effectiveClinicId);
       }
 
+      let emailNote = '';
+      if (emailConfirmedByAdmin) {
+        emailNote = ' (E-mail confirmado no Supabase Auth pelo Super Admin).';
+      } else if (emailAlreadyConfirmed) {
+        emailNote = ' (E-mail já estava confirmado no Supabase Auth).';
+      }
+
       // Log in audit table
       try {
         await supabase.from('admin_audit_logs').insert({
@@ -428,7 +518,7 @@ export async function handler(event: any) {
           clinic_id: effectiveClinicId || null,
           admin_email: adminEmail || 'super_admin',
           action: 'Acesso Liberado Manualmente (Pagamento Aprovado)',
-          details: `Super Admin ${adminEmail} liberou o acesso do usuário ${targetEmail || effectiveUserId} com pagamento confirmado no Mercado Pago.`,
+          details: `Super Admin ${adminEmail} liberou o acesso do usuário ${targetEmail || effectiveUserId} com pagamento confirmado no Mercado Pago.${emailNote}`,
           created_at: new Date().toISOString(),
         });
       } catch (err) {
@@ -440,7 +530,11 @@ export async function handler(event: any) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           success: true,
-          message: 'Acesso ativado e liberado com sucesso!',
+          emailConfirmedByAdmin,
+          emailAlreadyConfirmed,
+          message: emailConfirmedByAdmin
+            ? 'Acesso ativado e e-mail do usuário confirmado no Supabase Auth com sucesso!'
+            : 'Acesso ativado e liberado com sucesso!',
         }),
       };
     }
@@ -476,6 +570,7 @@ export async function handler(event: any) {
         // Securely update user password in Supabase Auth via Admin API
         const { error: authUpdateErr } = await supabase.auth.admin.updateUserById(effectiveUserId, {
           password: newPassword,
+          email_confirm: true,
           ...(newEmail ? { email: newEmail } : {}),
         });
 
