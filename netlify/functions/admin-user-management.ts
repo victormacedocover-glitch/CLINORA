@@ -288,6 +288,108 @@ export async function handler(event: any) {
     }
 
     // -------------------------------------------------------------
+    // EXPLICIT ACTION: CONFIRM USER EMAIL IN SUPABASE AUTH
+    // -------------------------------------------------------------
+    if (action === 'confirm_user_email') {
+      const { userId, clinicId, targetEmail } = body;
+
+      if (!userId && !targetEmail) {
+        return {
+          statusCode: 400,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ error: 'userId ou targetEmail é obrigatório.' }),
+        };
+      }
+
+      let effectiveUserId = userId;
+      let effectiveClinicId = clinicId;
+
+      if (!effectiveUserId && targetEmail) {
+        const { data: prof } = await supabase
+          .from('profiles')
+          .select('user_id, clinic_id')
+          .eq('email', targetEmail)
+          .maybeSingle();
+
+        if (prof) {
+          effectiveUserId = prof.user_id;
+          if (!effectiveClinicId) effectiveClinicId = prof.clinic_id;
+        } else {
+          try {
+            const { data: authList } = await supabase.auth.admin.listUsers();
+            const found = authList?.users?.find((u: any) => u.email?.toLowerCase() === targetEmail.toLowerCase());
+            if (found) effectiveUserId = found.id;
+          } catch (e) {
+            console.warn('Error searching auth user by email:', e);
+          }
+        }
+      }
+
+      if (!effectiveUserId) {
+        return {
+          statusCode: 404,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ error: 'Usuário não encontrado para confirmação de e-mail.' }),
+        };
+      }
+
+      const { data: userData, error: getUserErr } = await supabase.auth.admin.getUserById(effectiveUserId);
+      if (getUserErr || !userData?.user) {
+        return {
+          statusCode: 404,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ error: 'Usuário não localizado no Supabase Auth.' }),
+        };
+      }
+
+      if (userData.user.email_confirmed_at) {
+        return {
+          statusCode: 200,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            success: true,
+            alreadyConfirmed: true,
+            message: `O e-mail (${userData.user.email}) já está confirmado no Supabase Auth.`,
+          }),
+        };
+      }
+
+      const { error: confirmErr } = await supabase.auth.admin.updateUserById(effectiveUserId, {
+        email_confirm: true,
+      });
+
+      if (confirmErr) {
+        return {
+          statusCode: 400,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ error: `Erro ao confirmar e-mail no Auth: ${confirmErr.message}` }),
+        };
+      }
+
+      try {
+        await supabase.from('admin_audit_logs').insert({
+          user_id: effectiveUserId,
+          clinic_id: effectiveClinicId || null,
+          admin_email: adminEmail || 'super_admin',
+          action: 'Confirmação Manual de E-mail',
+          details: `Super Admin ${adminEmail} confirmou manualmente o e-mail do usuário (${userData.user.email || targetEmail || effectiveUserId}) no Supabase Auth.`,
+          created_at: new Date().toISOString(),
+        });
+      } catch (err) {
+        console.warn('Audit log write exception:', err);
+      }
+
+      return {
+        statusCode: 200,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          success: true,
+          message: `E-mail (${userData.user.email}) confirmado com sucesso no Supabase Auth!`,
+        }),
+      };
+    }
+
+    // -------------------------------------------------------------
     // 2. UPDATE ACCESS STATUS (active / pending / blocked)
     // -------------------------------------------------------------
     if (action === 'update_access_status') {

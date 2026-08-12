@@ -111,7 +111,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate, currentUser })
     isOpen: boolean;
     title: string;
     message: string;
-    actionType: 'activate' | 'pending' | 'block' | 'unblock' | 'manual_release';
+    actionType: 'activate' | 'pending' | 'block' | 'unblock' | 'manual_release' | 'confirm_email';
     targetUser: any | null;
   }>({
     isOpen: false,
@@ -270,6 +270,37 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate, currentUser })
     }
   };
 
+  // Confirm User Email Handler (Official Supabase Auth Admin API)
+  const handleConfirmEmail = async (user: any) => {
+    try {
+      const response = await fetch('/.netlify/functions/admin-user-management', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'confirm_user_email',
+          userId: user.userId,
+          clinicId: user.clinicId,
+          targetEmail: user.email,
+          adminEmail: adminEmail,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.success) {
+        fetchData();
+        if (selectedUser && (selectedUser.id === user.id || selectedUser.email === user.email)) {
+          setSelectedUser((prev: any) => ({ ...prev, emailConfirmed: true }));
+        }
+        showToast(data.message || '✓ E-mail do usuário confirmado no Supabase Auth com sucesso!', 'success');
+      } else {
+        showToast(data.error || 'Erro ao confirmar e-mail do usuário no Supabase Auth.', 'error');
+      }
+    } catch (err: any) {
+      showToast(err?.message || 'Erro de conexão com o servidor.', 'error');
+    }
+  };
+
   // Password Reset Handler (Official Supabase Auth Admin API)
   const handleResetPassword = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -412,7 +443,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate, currentUser })
   // Quick Action Confirmation Trigger
   const triggerActionModal = (
     user: any,
-    actionType: 'activate' | 'pending' | 'block' | 'unblock' | 'manual_release'
+    actionType: 'activate' | 'pending' | 'block' | 'unblock' | 'manual_release' | 'confirm_email'
   ) => {
     const titles = {
       activate: 'Liberar Acesso Vitalício',
@@ -420,6 +451,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate, currentUser })
       block: 'Bloquear Acesso da Clínica',
       unblock: 'Desbloquear Acesso da Clínica',
       manual_release: 'Liberar Acesso Manualmente (Pagamento Aprovado)',
+      confirm_email: 'Confirmar E-mail no Supabase Auth',
     };
 
     const messages = {
@@ -428,6 +460,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate, currentUser })
       block: `Tem certeza que deseja bloquear o acesso de "${user.clinicName}"? O login será suspenso.`,
       unblock: `Tem certeza que deseja desbloquear o acesso de "${user.clinicName}"? O login será restaurado.`,
       manual_release: `Pagamento aprovado encontrado. Deseja liberar o acesso deste usuário (${user.owner})?`,
+      confirm_email: `Deseja confirmar manualmente o e-mail do usuário "${user.owner}" (${user.email}) diretamente no Supabase Auth?`,
     };
 
     setConfirmModal({
@@ -442,7 +475,9 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate, currentUser })
   const handleExecuteConfirmAction = () => {
     if (!confirmModal.targetUser) return;
 
-    if (confirmModal.actionType === 'manual_release') {
+    if (confirmModal.actionType === 'confirm_email') {
+      handleConfirmEmail(confirmModal.targetUser);
+    } else if (confirmModal.actionType === 'manual_release') {
       handleReleaseManualAccess(confirmModal.targetUser);
     } else {
       const targetStatusMap: Record<string, 'active' | 'pending' | 'blocked'> = {
@@ -917,6 +952,17 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate, currentUser })
                         <td className="p-3.5 text-slate-400 font-mono text-[11px]">{user.createdAt}</td>
                         <td className="p-3.5 text-slate-400 font-mono text-[11px]">{user.lastSignInAt}</td>
                         <td className="p-3.5 text-right space-x-2 whitespace-nowrap">
+                          {/* Explicit Action: Confirm Email in Supabase Auth */}
+                          {!user.emailConfirmed && (
+                            <button
+                              onClick={() => triggerActionModal(user, 'confirm_email')}
+                              className="bg-blue-600 hover:bg-blue-500 text-white px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-colors inline-flex items-center gap-1 cursor-pointer shadow-sm shadow-blue-600/30"
+                              title="Confirmar e-mail no Supabase Auth"
+                            >
+                              <Mail className="w-3 h-3" /> Confirmar E-mail
+                            </button>
+                          )}
+
                           {/* Discrepancy Action: Payment Approved but Access Pending */}
                           {(user.subscriptionStatus === 'approved' || user.subscriptionStatus === 'active') &&
                             user.accessStatus === 'pending' && (
@@ -1361,46 +1407,96 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate, currentUser })
               {modalTab === 'access' && (
                 <div className="space-y-5">
                   <div>
-                    <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-400 mb-2">
-                      Status de Acesso do Usuário
+                    <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-400 mb-3">
+                      Estados Independentes do Usuário
                     </h3>
 
-                    <div className="flex items-center gap-3 p-4 bg-slate-950 border border-slate-800 rounded-xl">
-                      <span className="text-xs text-slate-300 font-semibold">Status de Acesso:</span>
-                      {selectedUser.accessStatus === 'active' && (
-                        <span className="px-3 py-1 rounded-full font-bold text-xs bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
-                          ATIVO (Acesso liberado)
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      {/* E-mail Status */}
+                      <div className="p-3.5 bg-slate-950 border border-slate-800 rounded-xl space-y-1">
+                        <span className="text-[10px] text-slate-400 uppercase font-bold block">Status do E-mail:</span>
+                        {selectedUser.emailConfirmed ? (
+                          <span className="inline-flex items-center gap-1 font-bold text-xs text-emerald-400">
+                            <CheckCircle2 className="w-3.5 h-3.5" /> E-mail Confirmado
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 font-bold text-xs text-amber-400">
+                            <AlertCircle className="w-3.5 h-3.5" /> Não Confirmado
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Access Status */}
+                      <div className="p-3.5 bg-slate-950 border border-slate-800 rounded-xl space-y-1">
+                        <span className="text-[10px] text-slate-400 uppercase font-bold block">Status de Acesso:</span>
+                        {selectedUser.accessStatus === 'active' && (
+                          <span className="inline-flex items-center gap-1 font-bold text-xs text-emerald-400">
+                            <CheckCircle2 className="w-3.5 h-3.5" /> ATIVO
+                          </span>
+                        )}
+                        {selectedUser.accessStatus === 'pending' && (
+                          <span className="inline-flex items-center gap-1 font-bold text-xs text-amber-400">
+                            <Clock className="w-3.5 h-3.5" /> PENDENTE
+                          </span>
+                        )}
+                        {selectedUser.accessStatus === 'blocked' && (
+                          <span className="inline-flex items-center gap-1 font-bold text-xs text-red-400">
+                            <Lock className="w-3.5 h-3.5" /> BLOQUEADO
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Payment Status */}
+                      <div className="p-3.5 bg-slate-950 border border-slate-800 rounded-xl space-y-1">
+                        <span className="text-[10px] text-slate-400 uppercase font-bold block">Status de Pagamento:</span>
+                        <span className={`inline-flex items-center gap-1 font-bold text-xs uppercase ${
+                          selectedUser.subscriptionStatus === 'approved' || selectedUser.subscriptionStatus === 'active'
+                            ? 'text-teal-400'
+                            : selectedUser.subscriptionStatus === 'pending'
+                            ? 'text-amber-400'
+                            : 'text-rose-400'
+                        }`}>
+                          {selectedUser.subscriptionStatus === 'approved' || selectedUser.subscriptionStatus === 'active'
+                            ? 'Aprovado'
+                            : selectedUser.subscriptionStatus === 'pending'
+                            ? 'Pendente'
+                            : 'Recusado'}
                         </span>
-                      )}
-                      {selectedUser.accessStatus === 'pending' && (
-                        <span className="px-3 py-1 rounded-full font-bold text-xs bg-amber-500/10 text-amber-400 border border-amber-500/30">
-                          PENDENTE (Aguardando liberação)
-                        </span>
-                      )}
-                      {selectedUser.accessStatus === 'blocked' && (
-                        <span className="px-3 py-1 rounded-full font-bold text-xs bg-red-500/10 text-red-400 border border-red-500/30">
-                          BLOQUEADO (Acesso suspenso)
-                        </span>
-                      )}
+                      </div>
                     </div>
                   </div>
 
                   <div className="space-y-3">
-                    <h4 className="text-xs font-bold text-slate-300">Ações de Controle de Acesso:</h4>
+                    <h4 className="text-xs font-bold text-slate-300">Ações Administrativas Diretas:</h4>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {/* Confirm Email Button Card */}
+                      <button
+                        onClick={() => handleConfirmEmail(selectedUser)}
+                        className="bg-blue-950/60 border border-blue-500/40 hover:bg-blue-900/60 text-blue-200 p-4 rounded-xl text-left transition-colors space-y-1 cursor-pointer"
+                      >
+                        <div className="flex items-center gap-2 font-bold text-xs text-blue-400">
+                          <Mail className="w-4 h-4" /> [CONFIRMAR E-MAIL]
+                        </div>
+                        <p className="text-[11px] text-slate-400">
+                          Confirma o e-mail diretamente no Supabase Auth.
+                        </p>
+                      </button>
+
+                      {/* Activate Access Button Card */}
                       <button
                         onClick={() => handleUpdateAccessStatus(selectedUser, 'active')}
                         className="bg-emerald-950/60 border border-emerald-500/40 hover:bg-emerald-900/60 text-emerald-200 p-4 rounded-xl text-left transition-colors space-y-1 cursor-pointer"
                       >
                         <div className="flex items-center gap-2 font-bold text-xs text-emerald-400">
-                          <CheckCircle2 className="w-4 h-4" /> Ativar Acesso
+                          <CheckCircle2 className="w-4 h-4" /> [LIBERAR ACESSO / ATIVAR]
                         </div>
                         <p className="text-[11px] text-slate-400">
-                          Libera acesso completo ao sistema Clinora.
+                          Define o access_status como active no banco de dados.
                         </p>
                       </button>
 
+                      {/* Pending Button Card */}
                       <button
                         onClick={() => handleUpdateAccessStatus(selectedUser, 'pending')}
                         className="bg-amber-950/60 border border-amber-500/40 hover:bg-amber-900/60 text-amber-200 p-4 rounded-xl text-left transition-colors space-y-1 cursor-pointer"
@@ -1409,21 +1505,36 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate, currentUser })
                           <Clock className="w-4 h-4" /> Colocar como Pendente
                         </div>
                         <p className="text-[11px] text-slate-400">
-                          Exige confirmação de pagamento para acessar.
+                          Retorna o access_status para pending.
                         </p>
                       </button>
 
-                      <button
-                        onClick={() => handleUpdateAccessStatus(selectedUser, 'blocked')}
-                        className="bg-red-950/60 border border-red-500/40 hover:bg-red-900/60 text-red-200 p-4 rounded-xl text-left transition-colors space-y-1 cursor-pointer"
-                      >
-                        <div className="flex items-center gap-2 font-bold text-xs text-red-400">
-                          <Lock className="w-4 h-4" /> Bloquear Acesso
-                        </div>
-                        <p className="text-[11px] text-slate-400">
-                          Impede o login da clínica no sistema.
-                        </p>
-                      </button>
+                      {/* Block/Unblock Button Card */}
+                      {selectedUser.accessStatus === 'blocked' ? (
+                        <button
+                          onClick={() => handleUpdateAccessStatus(selectedUser, 'active')}
+                          className="bg-emerald-950/60 border border-emerald-500/40 hover:bg-emerald-900/60 text-emerald-200 p-4 rounded-xl text-left transition-colors space-y-1 cursor-pointer"
+                        >
+                          <div className="flex items-center gap-2 font-bold text-xs text-emerald-400">
+                            <Unlock className="w-4 h-4" /> [DESBLOQUEAR]
+                          </div>
+                          <p className="text-[11px] text-slate-400">
+                            Restaura o acesso da clínica.
+                          </p>
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => handleUpdateAccessStatus(selectedUser, 'blocked')}
+                          className="bg-red-950/60 border border-red-500/40 hover:bg-red-900/60 text-red-200 p-4 rounded-xl text-left transition-colors space-y-1 cursor-pointer"
+                        >
+                          <div className="flex items-center gap-2 font-bold text-xs text-red-400">
+                            <Lock className="w-4 h-4" /> [BLOQUEAR]
+                          </div>
+                          <p className="text-[11px] text-slate-400">
+                            Modifica o status para blocked e suspende login sem excluir conta.
+                          </p>
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
