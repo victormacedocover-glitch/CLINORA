@@ -85,14 +85,35 @@ export const LoginPage: React.FC<LoginPageProps> = ({
 
         const userId = authData.user?.id;
 
-        // Query entitlement from Supabase database
+        // Query entitlement & clinic status from Supabase database
         let hasActiveSub = false;
         if (userId) {
           const { data: entData } = await supabase
             .from('access_entitlements')
-            .select('status')
+            .select('status, clinic_id')
             .eq('user_id', userId)
             .maybeSingle();
+
+          // Check if blocked
+          if (entData?.status === 'blocked') {
+            setError('Seu acesso ao Clinora está temporariamente bloqueado. Entre em contato com o suporte.');
+            setLoading(false);
+            return;
+          }
+
+          if (entData?.clinic_id) {
+            const { data: clinicData } = await supabase
+              .from('clinics')
+              .select('status')
+              .eq('id', entData.clinic_id)
+              .maybeSingle();
+
+            if (clinicData?.status === 'blocked') {
+              setError('Seu acesso ao Clinora está temporariamente bloqueado. Entre em contato com o suporte.');
+              setLoading(false);
+              return;
+            }
+          }
 
           if (entData && entData.status === 'active') {
             hasActiveSub = true;

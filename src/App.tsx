@@ -323,6 +323,7 @@ export default function App() {
       '/configuracoes',
       '/perfil',
       '/admin',
+      '/assinatura',
     ].includes(currentRoute) &&
     user &&
     (subscriptionStatus === 'active' || user.role === 'super_admin');
@@ -361,6 +362,15 @@ export default function App() {
             />
           )}
           {currentRoute === '/admin' && <AdminPage onNavigate={navigate} />}
+          {currentRoute === '/assinatura' && (
+            <SubscriptionPage
+              onNavigate={navigate}
+              user={user}
+              clinicInfo={user ? { name: user.clinicName, email: user.email } : null}
+              subscriptionStatus={subscriptionStatus}
+              onUpdateSubscriptionStatus={setSubscriptionStatus}
+            />
+          )}
         </main>
       </div>
     );
@@ -407,6 +417,7 @@ export default function App() {
         {currentRoute === '/assinatura' && (
           <SubscriptionPage
             onNavigate={navigate}
+            user={user}
             clinicInfo={user ? { name: user.clinicName, email: user.email } : null}
             subscriptionStatus={subscriptionStatus}
             onUpdateSubscriptionStatus={setSubscriptionStatus}

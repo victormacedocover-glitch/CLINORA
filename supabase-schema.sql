@@ -51,7 +51,7 @@ CREATE TABLE IF NOT EXISTS public.access_entitlements (
     user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
     clinic_id UUID REFERENCES public.clinics(id) ON DELETE CASCADE,
     access_type VARCHAR(50) NOT NULL DEFAULT 'lifetime' CHECK (access_type IN ('lifetime', 'trial', 'custom')),
-    status VARCHAR(50) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'active', 'revoked', 'expired')),
+    status VARCHAR(50) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'active', 'blocked', 'revoked', 'expired')),
     granted_at TIMESTAMP WITH TIME ZONE,
     payment_id UUID REFERENCES public.payments(id) ON DELETE SET NULL,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
@@ -158,6 +158,17 @@ CREATE TABLE IF NOT EXISTS public.opportunities (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- 12. TABELA DE LOGS DE AUDITORIA ADMINISTRATIVA (admin_audit_logs)
+CREATE TABLE IF NOT EXISTS public.admin_audit_logs (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+    clinic_id UUID REFERENCES public.clinics(id) ON DELETE SET NULL,
+    admin_email VARCHAR(255) NOT NULL,
+    action VARCHAR(255) NOT NULL,
+    details TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
 -- ====================================================================
 -- HELPER FUNCTION PARA AUXILIAR NO ISOLAMENTO RLS
 -- ====================================================================
@@ -189,6 +200,7 @@ ALTER TABLE public.budgets ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.transactions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.tasks ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.opportunities ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.admin_audit_logs ENABLE ROW LEVEL SECURITY;
 
 -- POLÍTICAS RLS - CLINICS
 CREATE POLICY "Usuários acessam apenas sua própria clínica ou super admin"

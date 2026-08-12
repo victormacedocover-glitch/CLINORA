@@ -178,10 +178,10 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                 </div>
 
                 <button
-                  onClick={() => onNavigate('/checkout')}
+                  onClick={() => onNavigate('/assinatura')}
                   className="w-full bg-gradient-to-r from-teal-500 to-teal-600 hover:from-teal-400 hover:to-teal-500 text-white font-extrabold py-2.5 px-4 rounded-xl text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-lg shadow-teal-500/20"
                 >
-                  Ativar Acesso (R$ 149,90)
+                  Gerenciar Assinatura (R$ 149,90)
                   <ArrowRight className="w-4 h-4" />
                 </button>
               </div>

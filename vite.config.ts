@@ -27,6 +27,8 @@ export default defineConfig(() => {
                     modulePath = './netlify/functions/mercadopago-webhook.ts';
                   } else if (functionName === 'check-payment') {
                     modulePath = './netlify/functions/check-payment.ts';
+                  } else if (functionName === 'admin-user-management') {
+                    modulePath = './netlify/functions/admin-user-management.ts';
                   }
 
                   if (modulePath) {
