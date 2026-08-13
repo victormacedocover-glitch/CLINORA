@@ -13,11 +13,26 @@ const getGeminiClient = () => {
   });
 };
 
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Content-Type': 'application/json',
+};
+
 export async function handler(event: any) {
+  if (event.httpMethod === 'OPTIONS') {
+    return {
+      statusCode: 204,
+      headers: corsHeaders,
+      body: '',
+    };
+  }
+
   if (event.httpMethod !== 'POST') {
     return {
       statusCode: 405,
-      headers: { 'Content-Type': 'application/json' },
+      headers: corsHeaders,
       body: JSON.stringify({ error: 'Método não permitido.' }),
     };
   }
@@ -48,7 +63,7 @@ Diretrizes:
       if (response?.text) {
         return {
           statusCode: 200,
-          headers: { 'Content-Type': 'application/json' },
+          headers: corsHeaders,
           body: JSON.stringify({ success: true, message: response.text.trim() }),
         };
       }
@@ -59,14 +74,14 @@ Diretrizes:
 
     return {
       statusCode: 200,
-      headers: { 'Content-Type': 'application/json' },
+      headers: corsHeaders,
       body: JSON.stringify({ success: true, message: defaultMessage, isFallback: true }),
     };
   } catch (err: any) {
     console.error('Error generating AI followup:', err);
     return {
       statusCode: 500,
-      headers: { 'Content-Type': 'application/json' },
+      headers: corsHeaders,
       body: JSON.stringify({ error: 'Erro ao gerar mensagem com IA', details: err?.message || 'Erro interno' }),
     };
   }

@@ -13,11 +13,26 @@ const getGeminiClient = () => {
   });
 };
 
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Content-Type': 'application/json',
+};
+
 export async function handler(event: any) {
+  if (event.httpMethod === 'OPTIONS') {
+    return {
+      statusCode: 204,
+      headers: corsHeaders,
+      body: '',
+    };
+  }
+
   if (event.httpMethod !== 'POST') {
     return {
       statusCode: 405,
-      headers: { 'Content-Type': 'application/json' },
+      headers: corsHeaders,
       body: JSON.stringify({ error: 'Método não permitido.' }),
     };
   }
@@ -76,7 +91,7 @@ Retorne em formato JSON válido com as chaves:
           const parsed = JSON.parse(response.text.trim());
           return {
             statusCode: 200,
-            headers: { 'Content-Type': 'application/json' },
+            headers: corsHeaders,
             body: JSON.stringify({ success: true, budgetData: parsed }),
           };
         } catch (pErr) {
@@ -101,14 +116,14 @@ Retorne em formato JSON válido com as chaves:
 
     return {
       statusCode: 200,
-      headers: { 'Content-Type': 'application/json' },
+      headers: corsHeaders,
       body: JSON.stringify({ success: true, budgetData: fallbackBudgetData, isFallback: true }),
     };
   } catch (err: any) {
     console.error('Error generating AI budget:', err);
     return {
       statusCode: 500,
-      headers: { 'Content-Type': 'application/json' },
+      headers: corsHeaders,
       body: JSON.stringify({ error: 'Erro ao gerar orçamento com IA', details: err?.message || 'Erro interno' }),
     };
   }
