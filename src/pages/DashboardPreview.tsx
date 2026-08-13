@@ -4,7 +4,6 @@ import {
   Calendar,
   FileText,
   DollarSign,
-  TrendingUp,
   CheckCircle2,
   Clock,
   Plus,
@@ -20,7 +19,6 @@ import {
   Appointment,
   Budget,
   Transaction,
-  Opportunity,
   Task,
 } from '../lib/supabaseServices';
 
@@ -37,7 +35,6 @@ export const DashboardPreview: React.FC<DashboardPreviewProps> = ({
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [budgets, setBudgets] = useState<Budget[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -47,12 +44,11 @@ export const DashboardPreview: React.FC<DashboardPreviewProps> = ({
     const loadDashboardData = async (isInitial = false) => {
       if (isInitial) setLoading(true);
       try {
-        const [pats, apps, budgs, txs, opps, tsks] = await Promise.all([
+        const [pats, apps, budgs, txs, tsks] = await Promise.all([
           supabaseServices.getPatients(),
           supabaseServices.getAppointments(),
           supabaseServices.getBudgets(),
           supabaseServices.getTransactions(),
-          supabaseServices.getOpportunities(),
           supabaseServices.getTasks(),
         ]);
 
@@ -61,7 +57,6 @@ export const DashboardPreview: React.FC<DashboardPreviewProps> = ({
           setAppointments(apps);
           setBudgets(budgs);
           setTransactions(txs);
-          setOpportunities(opps);
           setTasks(tsks);
         }
       } catch (err) {
@@ -105,7 +100,7 @@ export const DashboardPreview: React.FC<DashboardPreviewProps> = ({
   const pendingTasksCount = tasks.filter((t) => t.status !== 'concluida').length;
 
   return (
-    <div className="p-6 sm:p-8 space-y-8 bg-slate-900 text-slate-100 min-h-screen">
+    <div className="p-4 sm:p-6 md:p-8 space-y-6 md:space-y-8 bg-slate-950 text-slate-100 w-full pb-12">
       {/* Top Banner */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-950 border border-slate-800 p-6 rounded-2xl shadow-xl">
         <div>
@@ -282,18 +277,18 @@ export const DashboardPreview: React.FC<DashboardPreviewProps> = ({
           </div>
         </div>
 
-        {/* Opportunities / Leads */}
+        {/* Recent Budgets */}
         <div className="bg-slate-950 border border-slate-800 rounded-2xl p-6 space-y-4 shadow-lg">
           <div className="flex items-center justify-between border-b border-slate-800 pb-3">
             <h3 className="font-bold text-white text-sm flex items-center gap-2">
-              <TrendingUp className="w-4 h-4 text-teal-400" />
-              Oportunidades & Leads
+              <FileText className="w-4 h-4 text-teal-400" />
+              Últimos Orçamentos
             </h3>
             <button
-              onClick={() => onNavigate('/oportunidades')}
-              className="text-xs text-teal-400 hover:underline flex items-center gap-1 font-semibold"
+              onClick={() => onNavigate('/orcamentos')}
+              className="text-xs text-teal-400 hover:underline flex items-center gap-1 font-semibold cursor-pointer"
             >
-              Ver funil <ChevronRight className="w-3.5 h-3.5" />
+              Ver todos <ChevronRight className="w-3.5 h-3.5" />
             </button>
           </div>
 
@@ -301,25 +296,33 @@ export const DashboardPreview: React.FC<DashboardPreviewProps> = ({
             {loading ? (
               <div className="text-center py-6 text-slate-500 text-xs flex items-center justify-center gap-2">
                 <Loader2 className="w-4 h-4 animate-spin text-teal-400" />
-                Carregando oportunidades...
+                Carregando orçamentos...
               </div>
-            ) : opportunities.length === 0 ? (
-              <p className="text-xs text-slate-500 text-center py-4">Nenhuma oportunidade registrada no funil.</p>
+            ) : budgets.length === 0 ? (
+              <p className="text-xs text-slate-500 text-center py-4">Nenhum orçamento emitido ainda.</p>
             ) : (
-              opportunities.slice(0, 4).map((op) => (
+              budgets.slice(0, 4).map((b) => (
                 <div
-                  key={op.id}
+                  key={b.id}
                   className="bg-slate-900 border border-slate-800/80 p-3.5 rounded-xl flex items-center justify-between text-xs"
                 >
                   <div>
-                    <p className="font-bold text-white">{op.title}</p>
-                    <p className="text-slate-400 text-[11px]">{op.patientName}</p>
+                    <p className="font-bold text-white">{b.patientName}</p>
+                    <p className="text-slate-400 text-[11px] truncate max-w-[140px]">{b.description}</p>
                     <p className="text-teal-400 font-semibold text-[11px] mt-0.5">
-                      R$ {op.value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                      R$ {b.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                     </p>
                   </div>
-                  <span className="px-2.5 py-1 rounded bg-teal-500/10 text-teal-300 text-[11px] font-medium border border-teal-500/20 capitalize">
-                    {op.status.replace('_', ' ')}
+                  <span
+                    className={`px-2.5 py-1 rounded text-[10px] font-bold border capitalize ${
+                      b.status === 'aprovado'
+                        ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                        : b.status === 'rejeitado'
+                        ? 'bg-rose-500/10 text-rose-400 border-rose-500/30'
+                        : 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                    }`}
+                  >
+                    {b.status}
                   </span>
                 </div>
               ))

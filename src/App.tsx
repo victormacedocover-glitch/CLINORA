@@ -17,15 +17,15 @@ import { ProceduresPage } from './pages/ProceduresPage';
 import { BudgetsPage } from './pages/BudgetsPage';
 import { FinancialPage } from './pages/FinancialPage';
 import { TasksPage } from './pages/TasksPage';
-import { OpportunitiesPage } from './pages/OpportunitiesPage';
 import { RelatoriosPage } from './pages/RelatoriosPage';
 import { ConfiguracoesPage } from './pages/ConfiguracoesPage';
 import { Navbar } from './components/Navbar';
 import { Footer } from './components/Footer';
 import { AppSidebar } from './components/AppSidebar';
+import { HeaderBar } from './components/HeaderBar';
 import { SubscriptionStatus, UserRole } from './types';
 import { supabase, isSupabaseConfigured } from './lib/supabase';
-import { clearClinicIdCache, getActiveClinicId } from './lib/supabaseServices';
+import { clearClinicIdCache, getActiveClinicId, supabaseServices } from './lib/supabaseServices';
 
 export default function App() {
   const [currentRoute, setCurrentRoute] = useState<string>(() => {
@@ -157,8 +157,22 @@ export default function App() {
       }
     });
 
+    const handleDataChanged = async () => {
+      try {
+        const details = await supabaseServices.getClinicDetails();
+        if (details?.name) {
+          setUser((prev) => (prev ? { ...prev, clinicName: details.name } : null));
+        }
+      } catch (err) {
+        console.warn('Error refreshing clinic name:', err);
+      }
+    };
+
+    window.addEventListener('clinora_data_changed', handleDataChanged);
+
     return () => {
       authListener.subscription.unsubscribe();
+      window.removeEventListener('clinora_data_changed', handleDataChanged);
     };
   }, []);
 
@@ -237,7 +251,6 @@ export default function App() {
       '/procedimentos',
       '/financeiro',
       '/tarefas',
-      '/oportunidades',
       '/relatorios',
       '/configuracoes',
       '/perfil',
@@ -264,7 +277,6 @@ export default function App() {
       '/procedimentos',
       '/financeiro',
       '/tarefas',
-      '/oportunidades',
       '/relatorios',
       '/configuracoes',
       '/perfil',
@@ -357,7 +369,6 @@ export default function App() {
       '/procedimentos',
       '/financeiro',
       '/tarefas',
-      '/oportunidades',
       '/relatorios',
       '/configuracoes',
       '/perfil',
@@ -370,7 +381,7 @@ export default function App() {
 
   if (isProtectedLayoutRoute) {
     return (
-      <div className="flex min-h-screen bg-slate-900 text-slate-100 font-sans antialiased">
+      <div className="flex h-screen bg-slate-950 text-slate-100 font-sans antialiased overflow-hidden">
         <AppSidebar
           currentRoute={currentRoute}
           onNavigate={navigate}
@@ -378,42 +389,52 @@ export default function App() {
           isSuperAdmin={user.role === 'super_admin'}
           onLogout={handleLogout}
         />
-        <main className="flex-1 overflow-y-auto bg-slate-900">
-          {currentRoute === '/dashboard' && (
-            <DashboardPreview clinicName={user.clinicName} onNavigate={navigate} />
-          )}
-          {currentRoute === '/pacientes' && <PatientsPage />}
-          {currentRoute === '/agenda' && <AgendaPage />}
-          {currentRoute === '/procedimentos' && <ProceduresPage />}
-          {currentRoute === '/orcamentos' && <BudgetsPage />}
-          {currentRoute === '/financeiro' && <FinancialPage />}
-          {currentRoute === '/tarefas' && <TasksPage />}
-          {currentRoute === '/oportunidades' && <OpportunitiesPage />}
-          {currentRoute === '/relatorios' && <RelatoriosPage />}
-          {currentRoute === '/configuracoes' && (
-            <ConfiguracoesPage clinicName={user.clinicName} />
-          )}
-          {currentRoute === '/perfil' && (
-            <ProfilePage
-              onNavigate={navigate}
-              user={user}
-              subscriptionStatus={subscriptionStatus}
-              onLogout={handleLogout}
-            />
-          )}
-          {(currentRoute === '/admin' || currentRoute === '/super-admin') && (
-            <AdminPage onNavigate={navigate} currentUser={user} />
-          )}
-          {currentRoute === '/assinatura' && (
-            <SubscriptionPage
-              onNavigate={navigate}
-              user={user}
-              clinicInfo={user ? { name: user.clinicName, email: user.email } : null}
-              subscriptionStatus={subscriptionStatus}
-              onUpdateSubscriptionStatus={setSubscriptionStatus}
-            />
-          )}
-        </main>
+        <div className="flex-1 flex flex-col min-w-0 h-full overflow-y-auto no-scrollbar bg-slate-950">
+          <HeaderBar
+            clinicName={user.clinicName}
+            onNavigate={navigate}
+          />
+          <main className="flex-1 p-2 md:p-4">
+            {currentRoute === '/dashboard' && (
+              <DashboardPreview clinicName={user.clinicName} onNavigate={navigate} />
+            )}
+            {currentRoute === '/pacientes' && <PatientsPage />}
+            {currentRoute === '/agenda' && <AgendaPage />}
+            {currentRoute === '/procedimentos' && <ProceduresPage />}
+            {currentRoute === '/orcamentos' && <BudgetsPage />}
+            {currentRoute === '/financeiro' && <FinancialPage />}
+            {currentRoute === '/tarefas' && <TasksPage />}
+            {currentRoute === '/relatorios' && <RelatoriosPage />}
+            {currentRoute === '/configuracoes' && (
+              <ConfiguracoesPage
+                clinicName={user.clinicName}
+                onClinicNameChange={(newName) =>
+                  setUser((prev) => (prev ? { ...prev, clinicName: newName } : null))
+                }
+              />
+            )}
+            {currentRoute === '/perfil' && (
+              <ProfilePage
+                onNavigate={navigate}
+                user={user}
+                subscriptionStatus={subscriptionStatus}
+                onLogout={handleLogout}
+              />
+            )}
+            {(currentRoute === '/admin' || currentRoute === '/super-admin') && (
+              <AdminPage onNavigate={navigate} currentUser={user} />
+            )}
+            {currentRoute === '/assinatura' && (
+              <SubscriptionPage
+                onNavigate={navigate}
+                user={user}
+                clinicInfo={user ? { name: user.clinicName, email: user.email } : null}
+                subscriptionStatus={subscriptionStatus}
+                onUpdateSubscriptionStatus={setSubscriptionStatus}
+              />
+            )}
+          </main>
+        </div>
       </div>
     );
   }

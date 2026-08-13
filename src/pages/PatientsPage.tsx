@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { supabaseServices, Patient } from '../lib/supabaseServices';
-import { Users, Plus, Search, Phone, Mail, Calendar, Trash2, UserPlus, CheckCircle2, Edit2, AlertCircle } from 'lucide-react';
+import { Users, Plus, Search, Phone, Mail, Calendar, Trash2, UserPlus, CheckCircle2, Edit2, AlertCircle, Eye } from 'lucide-react';
 import { ConfirmModal } from '../components/ConfirmModal';
+import { PatientDetailModal } from '../components/PatientDetailModal';
 
 export function PatientsPage() {
   const [patients, setPatients] = useState<Patient[]>([]);
@@ -9,6 +10,7 @@ export function PatientsPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [editingPatient, setEditingPatient] = useState<Patient | null>(null);
+  const [selectedPatientForDetail, setSelectedPatientForDetail] = useState<Patient | null>(null);
   const [saving, setSaving] = useState(false);
   const [successMsg, setSuccessMsg] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
@@ -222,6 +224,13 @@ export function PatientsPage() {
                   </div>
                   <div className="flex items-center gap-1">
                     <button
+                      onClick={() => setSelectedPatientForDetail(patient)}
+                      className="p-1.5 text-slate-400 hover:text-teal-400 rounded-lg hover:bg-slate-700/50 transition cursor-pointer"
+                      title="Ver prontuário e gerar follow-up com IA"
+                    >
+                      <Eye className="w-4 h-4" />
+                    </button>
+                    <button
                       onClick={() => openEditModal(patient)}
                       className="p-1.5 text-slate-400 hover:text-emerald-400 rounded-lg hover:bg-slate-700/50 transition cursor-pointer"
                       title="Editar paciente"
@@ -264,10 +273,30 @@ export function PatientsPage() {
                     "{patient.notes}"
                   </div>
                 )}
+
+                <button
+                  onClick={() => setSelectedPatientForDetail(patient)}
+                  className="w-full mt-2 py-2 bg-slate-900 hover:bg-slate-700/70 text-teal-400 text-xs font-semibold rounded-xl border border-slate-700/60 transition flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <Eye className="w-3.5 h-3.5" />
+                  Ver Prontuário & IA Follow-up
+                </button>
               </div>
             </div>
           ))}
         </div>
+      )}
+
+      {/* Patient Detail Modal */}
+      {selectedPatientForDetail && (
+        <PatientDetailModal
+          patient={selectedPatientForDetail}
+          onClose={() => setSelectedPatientForDetail(null)}
+          onEdit={(p) => {
+            setSelectedPatientForDetail(null);
+            openEditModal(p);
+          }}
+        />
       )}
 
       {/* Modal - Novo / Editar Paciente */}

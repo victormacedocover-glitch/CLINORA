@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabaseServices, Opportunity, Patient } from '../lib/supabaseServices';
-import { TrendingUp, Plus, User, DollarSign, ChevronRight, Trash2, ArrowRight, CheckCircle2, AlertCircle } from 'lucide-react';
+import { isValidPhoneBR, openWhatsApp } from '../lib/whatsapp';
+import { TrendingUp, Plus, User, DollarSign, ChevronRight, Trash2, ArrowRight, CheckCircle2, AlertCircle, MessageSquare, Sparkles, Copy } from 'lucide-react';
 import { ConfirmModal } from '../components/ConfirmModal';
 
 export function OpportunitiesPage() {
@@ -19,6 +20,58 @@ export function OpportunitiesPage() {
   const [patientName, setPatientName] = useState('');
   const [title, setTitle] = useState('');
   const [value, setValue] = useState(5000);
+
+  // CRM Followup State
+  const [selectedOppForFollowup, setSelectedOppForFollowup] = useState<Opportunity | null>(null);
+  const [generatingAi, setGeneratingAi] = useState(false);
+  const [aiMessage, setAiMessage] = useState('');
+  const [copySuccess, setCopySuccess] = useState(false);
+  const [followupError, setFollowupError] = useState('');
+
+  const openFollowupModal = async (op: Opportunity) => {
+    setSelectedOppForFollowup(op);
+    setAiMessage('');
+    setFollowupError('');
+    setGeneratingAi(true);
+
+    try {
+      const res = await fetch('/api/ai/followup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          patientName: op.patientName,
+          contextType: `Oportunidade CRM — Estágio: ${op.status.replace('_', ' ')}`,
+          details: `Interesse em "${op.title}" com valor previsto de R$ ${op.value.toLocaleString('pt-BR')}.`,
+          clinicName: 'CLINORA',
+        }),
+      });
+      const data = await res.json();
+      if (data.success && data.message) {
+        setAiMessage(data.message);
+      } else {
+        setAiMessage(`Olá, ${op.patientName}! 😊\n\nPassando para saber se você tem alguma dúvida sobre a proposta "${op.title}". Estamos à disposição para ajudar você a agendar!`);
+      }
+    } catch (err) {
+      setAiMessage(`Olá, ${op.patientName}! 😊\n\nPassando para saber se você tem alguma dúvida sobre a proposta "${op.title}". Podemos agendar seu atendimento?`);
+    } finally {
+      setGeneratingAi(false);
+    }
+  };
+
+  const handleSendWhatsAppOpp = (op: Opportunity) => {
+    const matchedPatient = patients.find(
+      (p) => p.name.toLowerCase() === op.patientName.toLowerCase()
+    );
+    const phone = matchedPatient?.phone;
+
+    if (!isValidPhoneBR(phone)) {
+      setFollowupError('Este paciente não possui um telefone cadastrado.');
+      return;
+    }
+
+    const defaultMsg = `Olá, ${op.patientName}! Passando para dar continuidade sobre a sua oportunidade "${op.title}".`;
+    openWhatsApp(phone, aiMessage || defaultMsg);
+  };
 
   useEffect(() => {
     loadData();
@@ -203,15 +256,27 @@ export function OpportunitiesPage() {
                       </div>
                       <div className="flex justify-between items-center text-sm font-bold text-emerald-400 pt-2 border-t border-slate-700/40">
                         <span>R$ {op.value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
-                        {op.status !== 'convertido' && (
+                        
+                        <div className="flex items-center gap-1.5">
                           <button
-                            onClick={() => handleNextStage(op)}
-                            className="text-[10px] flex items-center gap-1 px-2 py-1 bg-teal-500/10 text-teal-300 rounded border border-teal-500/20 hover:bg-teal-500/20 cursor-pointer font-normal"
-                            title="Avançar estágio"
+                            onClick={() => openFollowupModal(op)}
+                            className="text-[11px] font-bold flex items-center gap-1 px-2.5 py-1 bg-emerald-500 text-slate-950 rounded-lg hover:bg-emerald-400 transition cursor-pointer shadow-sm"
+                            title="Enviar WhatsApp com IA"
                           >
-                            Avançar <ArrowRight className="w-3 h-3" />
+                            <MessageSquare className="w-3 h-3 fill-slate-950" />
+                            WhatsApp
                           </button>
-                        )}
+
+                          {op.status !== 'convertido' && (
+                            <button
+                              onClick={() => handleNextStage(op)}
+                              className="text-[10px] flex items-center gap-1 px-2 py-1 bg-teal-500/10 text-teal-300 rounded border border-teal-500/20 hover:bg-teal-500/20 cursor-pointer font-normal"
+                              title="Avançar estágio"
+                            >
+                              Avançar <ArrowRight className="w-3 h-3" />
+                            </button>
+                          )}
+                        </div>
                       </div>
                     </div>
                   ))}
@@ -319,6 +384,96 @@ export function OpportunitiesPage() {
         onConfirm={confirmDelete}
         onClose={() => setDeleteTargetId(null)}
       />
+
+      {/* Modal - Follow-up CRM com IA */}
+      {selectedOppForFollowup && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg p-6 space-y-5 shadow-2xl">
+            <div className="flex justify-between items-center pb-3 border-b border-slate-800">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-emerald-500/15 text-emerald-400 rounded-xl">
+                  <Sparkles className="w-5 h-5" />
+                </div>
+                <div>
+                  <h2 className="text-base font-bold text-white">Follow-up com IA (CRM)</h2>
+                  <p className="text-xs text-slate-400">{selectedOppForFollowup.patientName} — {selectedOppForFollowup.title}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setSelectedOppForFollowup(null)}
+                className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition"
+              >
+                ✕
+              </button>
+            </div>
+
+            {(() => {
+              const matchedPatient = patients.find(
+                (p) => p.name.toLowerCase() === selectedOppForFollowup.patientName.toLowerCase()
+              );
+              const phone = matchedPatient?.phone;
+              const hasValidPhone = isValidPhoneBR(phone);
+
+              return (
+                <div className="space-y-4">
+                  {!hasValidPhone && (
+                    <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl text-amber-300 text-xs flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
+                        <span>Este paciente não possui um telefone cadastrado.</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {followupError && (
+                    <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-rose-400 text-xs flex items-center gap-2">
+                      <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                      <span>{followupError}</span>
+                    </div>
+                  )}
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                      Mensagem gerada para envio:
+                    </label>
+                    <textarea
+                      rows={5}
+                      value={aiMessage}
+                      onChange={(e) => setAiMessage(e.target.value)}
+                      placeholder={generatingAi ? 'Gerando mensagem personalizada...' : 'Digite ou edite sua mensagem...'}
+                      className="w-full p-3.5 bg-slate-950 border border-slate-700 rounded-xl text-slate-100 text-sm focus:outline-none focus:border-emerald-500 leading-relaxed"
+                    />
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-end gap-3 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText(aiMessage);
+                        setCopySuccess(true);
+                        setTimeout(() => setCopySuccess(false), 3000);
+                      }}
+                      className="px-3.5 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-xl border border-slate-700 transition flex items-center gap-2 cursor-pointer"
+                    >
+                      {copySuccess ? <CheckCircle2 className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
+                      {copySuccess ? 'Copiado!' : 'Copiar Mensagem'}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleSendWhatsAppOpp(selectedOppForFollowup)}
+                      className="px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-extrabold rounded-xl transition flex items-center gap-2 shadow-lg shadow-emerald-500/20 cursor-pointer"
+                    >
+                      <MessageSquare className="w-4 h-4 fill-slate-950" />
+                      Enviar pelo WhatsApp
+                    </button>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

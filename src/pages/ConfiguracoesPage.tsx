@@ -1,20 +1,120 @@
-import React, { useState } from 'react';
-import { Settings, Building, Lock, Bell, CheckCircle2, ShieldCheck, Database, CreditCard } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Settings, Building, Lock, CheckCircle2, Database, CreditCard, MapPin, ShieldCheck } from 'lucide-react';
+import { supabaseServices } from '../lib/supabaseServices';
 
 interface ConfiguracoesPageProps {
   clinicName?: string;
+  onClinicNameChange?: (newName: string) => void;
 }
 
-export function ConfiguracoesPage({ clinicName = 'Clínica Odontológica Exemplo' }: ConfiguracoesPageProps) {
+export function ConfiguracoesPage({ clinicName = 'Clínica Odontológica Exemplo', onClinicNameChange }: ConfiguracoesPageProps) {
   const [name, setName] = useState(clinicName);
   const [phone, setPhone] = useState('(11) 98888-7777');
   const [email, setEmail] = useState('contato@clinica.com.br');
+
+  // Address fields
+  const [cep, setCep] = useState('');
+  const [street, setStreet] = useState('');
+  const [number, setNumber] = useState('');
+  const [complement, setComplement] = useState('');
+  const [neighborhood, setNeighborhood] = useState('');
+  const [city, setCity] = useState('');
+  const [state, setState] = useState('');
+
+  const [loading, setLoading] = useState(true);
+  const [savingGeneral, setSavingGeneral] = useState(false);
+  const [savingAddress, setSavingAddress] = useState(false);
+  const [loadingCep, setLoadingCep] = useState(false);
   const [savedMsg, setSavedMsg] = useState('');
 
-  const handleSave = (e: React.FormEvent) => {
+  useEffect(() => {
+    loadClinicInfo();
+  }, []);
+
+  const loadClinicInfo = async () => {
+    setLoading(true);
+    try {
+      const details = await supabaseServices.getClinicDetails();
+      if (details) {
+        if (details.name) setName(details.name);
+        if (details.phone) setPhone(details.phone);
+        if (details.email) setEmail(details.email);
+        setCep(details.cep || '');
+        setStreet(details.street || '');
+        setNumber(details.number || '');
+        setComplement(details.complement || '');
+        setNeighborhood(details.neighborhood || '');
+        setCity(details.city || '');
+        setState(details.state || '');
+      }
+    } catch (err) {
+      console.warn('Error loading clinic info:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSaveGeneral = async (e: React.FormEvent) => {
     e.preventDefault();
-    setSavedMsg('Configurações salvas com sucesso!');
-    setTimeout(() => setSavedMsg(''), 4000);
+    setSavingGeneral(true);
+    try {
+      const updated = await supabaseServices.updateClinicDetails({ name, phone, email });
+      setSavedMsg('Dados da clínica salvos com sucesso!');
+      if (updated.name && onClinicNameChange) {
+        onClinicNameChange(updated.name);
+      }
+      window.dispatchEvent(new Event('clinora_data_changed'));
+      setTimeout(() => setSavedMsg(''), 4000);
+    } catch (err: any) {
+      console.error('Error saving general details:', err);
+    } finally {
+      setSavingGeneral(false);
+    }
+  };
+
+  const handleSaveAddress = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavingAddress(true);
+    try {
+      await supabaseServices.updateClinicDetails({
+        cep,
+        street,
+        number,
+        complement,
+        neighborhood,
+        city,
+        state,
+      });
+      setSavedMsg('Informações de endereço salvas com sucesso!');
+      window.dispatchEvent(new Event('clinora_data_changed'));
+      setTimeout(() => setSavedMsg(''), 4000);
+    } catch (err: any) {
+      console.error('Error saving address details:', err);
+    } finally {
+      setSavingAddress(false);
+    }
+  };
+
+  const handleCepChange = async (val: string) => {
+    setCep(val);
+    const clean = val.replace(/\D/g, '');
+    if (clean.length === 8) {
+      setLoadingCep(true);
+      try {
+        const res = await fetch(`https://viacep.com.br/ws/${clean}/json/`);
+        const data = await res.json();
+        if (!data.erro) {
+          if (data.logradouro) setStreet(data.logradouro);
+          if (data.bairro) setNeighborhood(data.bairro);
+          if (data.localidade) setCity(data.localidade);
+          if (data.uf) setState(data.uf);
+        }
+      } catch (e) {
+        console.warn('ViaCEP fetch error:', e);
+      } finally {
+        setLoadingCep(false);
+      }
+    }
   };
 
   return (
@@ -26,13 +126,13 @@ export function ConfiguracoesPage({ clinicName = 'Clínica Odontológica Exemplo
         </div>
         <div>
           <h1 className="text-2xl font-extrabold text-white">Configurações da Clínica</h1>
-          <p className="text-xs text-slate-400">Gerencie informações cadastrais, integrações e segurança</p>
+          <p className="text-xs text-slate-400">Gerencie informações cadastrais, endereço, integrações e segurança</p>
         </div>
       </div>
 
       {savedMsg && (
         <div className="p-4 bg-teal-500/10 border border-teal-500/30 rounded-xl text-teal-400 text-xs flex items-center gap-2">
-          <CheckCircle2 className="w-4 h-4" />
+          <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
           {savedMsg}
         </div>
       )}
@@ -46,7 +146,7 @@ export function ConfiguracoesPage({ clinicName = 'Clínica Odontológica Exemplo
               Dados da Empresa & Clínica
             </h2>
 
-            <form onSubmit={handleSave} className="space-y-4 text-xs">
+            <form onSubmit={handleSaveGeneral} className="space-y-4 text-xs">
               <div>
                 <label className="block text-slate-300 font-medium mb-1">Nome Fantasia / Razão Social</label>
                 <input
@@ -82,9 +182,121 @@ export function ConfiguracoesPage({ clinicName = 'Clínica Odontológica Exemplo
               <div className="pt-2">
                 <button
                   type="submit"
-                  className="px-5 py-2.5 bg-teal-600 hover:bg-teal-500 text-white font-semibold rounded-xl transition cursor-pointer shadow-md shadow-teal-600/20"
+                  disabled={savingGeneral}
+                  className="px-5 py-2.5 bg-teal-600 hover:bg-teal-500 text-white font-semibold rounded-xl transition cursor-pointer shadow-md shadow-teal-600/20 disabled:opacity-50"
                 >
-                  Salvar Alterações
+                  {savingGeneral ? 'Salvando...' : 'Salvar Alterações'}
+                </button>
+              </div>
+            </form>
+          </div>
+
+          {/* Section: 📍 Endereço da clínica */}
+          <div className="bg-slate-950 border border-slate-800 rounded-2xl p-6 space-y-5 shadow-lg">
+            <h2 className="text-base font-bold text-white flex items-center gap-2 pb-3 border-b border-slate-800">
+              <MapPin className="w-4 h-4 text-teal-400" />
+              📍 Endereço da clínica
+            </h2>
+
+            <form onSubmit={handleSaveAddress} className="space-y-4 text-xs">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-slate-300 font-medium mb-1">CEP</label>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      placeholder="00000-000"
+                      value={cep}
+                      onChange={(e) => handleCepChange(e.target.value)}
+                      className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-800 rounded-xl text-slate-100 focus:outline-none focus:border-teal-500"
+                    />
+                    {loadingCep && (
+                      <span className="absolute right-3 top-2.5 text-[10px] text-teal-400 animate-pulse">
+                        Buscando...
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="sm:col-span-2">
+                  <label className="block text-slate-300 font-medium mb-1">Rua / Logradouro</label>
+                  <input
+                    type="text"
+                    placeholder="Ex: Rua Exemplo"
+                    value={street}
+                    onChange={(e) => setStreet(e.target.value)}
+                    className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-800 rounded-xl text-slate-100 focus:outline-none focus:border-teal-500"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-slate-300 font-medium mb-1">Número</label>
+                  <input
+                    type="text"
+                    placeholder="Ex: 123"
+                    value={number}
+                    onChange={(e) => setNumber(e.target.value)}
+                    className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-800 rounded-xl text-slate-100 focus:outline-none focus:border-teal-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-slate-300 font-medium mb-1">Complemento</label>
+                  <input
+                    type="text"
+                    placeholder="Ex: Sala 2"
+                    value={complement}
+                    onChange={(e) => setComplement(e.target.value)}
+                    className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-800 rounded-xl text-slate-100 focus:outline-none focus:border-teal-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-slate-300 font-medium mb-1">Bairro</label>
+                  <input
+                    type="text"
+                    placeholder="Ex: Centro"
+                    value={neighborhood}
+                    onChange={(e) => setNeighborhood(e.target.value)}
+                    className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-800 rounded-xl text-slate-100 focus:outline-none focus:border-teal-500"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-slate-300 font-medium mb-1">Cidade</label>
+                  <input
+                    type="text"
+                    placeholder="Ex: São Paulo"
+                    value={city}
+                    onChange={(e) => setCity(e.target.value)}
+                    className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-800 rounded-xl text-slate-100 focus:outline-none focus:border-teal-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-slate-300 font-medium mb-1">Estado (UF)</label>
+                  <input
+                    type="text"
+                    placeholder="Ex: SP"
+                    maxLength={2}
+                    value={state}
+                    onChange={(e) => setState(e.target.value.toUpperCase())}
+                    className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-800 rounded-xl text-slate-100 focus:outline-none focus:border-teal-500"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-2">
+                <button
+                  type="submit"
+                  disabled={savingAddress}
+                  className="px-5 py-2.5 bg-teal-600 hover:bg-teal-500 text-white font-semibold rounded-xl transition cursor-pointer shadow-md shadow-teal-600/20 disabled:opacity-50"
+                >
+                  {savingAddress ? 'Salvando...' : 'Salvar informações'}
                 </button>
               </div>
             </form>

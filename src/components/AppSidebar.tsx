@@ -39,14 +39,13 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
     { label: 'Orçamentos', route: '/orcamentos', icon: FileText },
     { label: 'Financeiro', route: '/financeiro', icon: DollarSign },
     { label: 'Tarefas', route: '/tarefas', icon: CheckSquare },
-    { label: 'Oportunidades', route: '/oportunidades', icon: TrendingUp },
-    { label: 'Relatorios', route: '/relatorios', icon: BarChart3 },
+    { label: 'Relatórios', route: '/relatorios', icon: BarChart3 },
     { label: 'Configurações', route: '/configuracoes', icon: Settings },
     { label: 'Meu Perfil', route: '/perfil', icon: User },
   ];
 
   return (
-    <aside className="w-64 bg-slate-950 border-r border-slate-800 text-slate-300 flex flex-col justify-between shrink-0 h-screen sticky top-0">
+    <aside className="w-64 bg-slate-950 border-r border-slate-800/80 text-slate-300 flex flex-col justify-between shrink-0 h-screen sticky top-0 overflow-y-auto no-scrollbar">
       <div className="p-4 space-y-6">
         {/* Brand */}
         <div className="flex items-center gap-2.5 px-2 pt-2">

@@ -1,13 +1,18 @@
 import React, { useState, useEffect } from 'react';
-import { supabaseServices, Budget, Patient } from '../lib/supabaseServices';
-import { FileText, Plus, DollarSign, User, CheckCircle2, AlertCircle, Trash2 } from 'lucide-react';
+import { supabaseServices, Budget, Patient, formatClinicAddress } from '../lib/supabaseServices';
+import { isValidPhoneBR, openWhatsApp } from '../lib/whatsapp';
+import { FileText, Plus, DollarSign, User, CheckCircle2, AlertCircle, Trash2, Sparkles, Search, Filter, Copy, Check, XCircle, MessageSquare } from 'lucide-react';
 import { ConfirmModal } from '../components/ConfirmModal';
+import { AiBudgetModal } from '../components/AiBudgetModal';
 
 export function BudgetsPage() {
   const [budgets, setBudgets] = useState<Budget[]>([]);
   const [patients, setPatients] = useState<Patient[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
+  const [showAiModal, setShowAiModal] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState<string>('all');
   const [saving, setSaving] = useState(false);
   const [successMsg, setSuccessMsg] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
@@ -58,9 +63,13 @@ export function BudgetsPage() {
     setErrorMsg('');
 
     try {
+      const matched = selectedPatientId
+        ? patients.find((p) => p.id === selectedPatientId)
+        : patients.find((p) => p.name.trim().toLowerCase() === finalName.toLowerCase());
+
       await supabaseServices.createBudget({
         clinicId: '',
-        patientId: selectedPatientId || undefined,
+        patientId: matched?.id || selectedPatientId || undefined,
         patientName: finalName,
         description: description.trim(),
         amount: Number(amount),
@@ -91,6 +100,37 @@ export function BudgetsPage() {
     } catch (err: any) {
       setErrorMsg(err.message);
     }
+  };
+
+  const handleSendBudgetWhatsApp = async (b: Budget) => {
+    setErrorMsg('');
+    let matched = b.patientId ? patients.find((p) => p.id === b.patientId) : undefined;
+
+    if (!matched && b.patientName) {
+      const nameLower = b.patientName.trim().toLowerCase();
+      matched = patients.find((p) => p.name.trim().toLowerCase() === nameLower);
+    }
+
+    const phone = matched?.phone;
+
+    if (!isValidPhoneBR(phone)) {
+      setErrorMsg(`Este paciente (${b.patientName}) não possui um telefone cadastrado.`);
+      return;
+    }
+
+    const clinicDetails = await supabaseServices.getClinicDetails();
+    const clinicName = clinicDetails.name || 'Clínica';
+    const addressBlock = formatClinicAddress(clinicDetails, '📍 Onde estamos:');
+
+    let msg = `Olá, ${b.patientName}! 😊\n\nPreparamos seu orçamento para o procedimento de ${b.description}.\n\nInvestimento: R$ ${b.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`;
+
+    if (addressBlock) {
+      msg += `\n\n${addressBlock}`;
+    }
+
+    msg += `\n\nSe tiver alguma dúvida, estou à disposição.\n\nPodemos agendar seu atendimento?\n\n${clinicName}`;
+
+    openWhatsApp(phone, msg);
   };
 
   const confirmDelete = async () => {
@@ -124,16 +164,57 @@ export function BudgetsPage() {
             <p className="text-slate-400 text-sm">Propostas financeiras para tratamentos de pacientes</p>
           </div>
         </div>
-        <button
-          onClick={() => {
-            setErrorMsg('');
-            setShowModal(true);
-          }}
-          className="flex items-center gap-2 px-4 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-semibold rounded-xl transition cursor-pointer text-sm"
-        >
-          <Plus className="w-4 h-4" />
-          Novo Orçamento
-        </button>
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            onClick={() => {
+              setErrorMsg('');
+              setShowAiModal(true);
+            }}
+            className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-teal-500 to-emerald-400 hover:from-teal-400 hover:to-emerald-300 text-slate-950 font-extrabold rounded-xl transition shadow-lg shadow-teal-500/20 cursor-pointer text-sm"
+          >
+            <Sparkles className="w-4 h-4" />
+            ✨ Criar Orçamento com IA
+          </button>
+          <button
+            onClick={() => {
+              setErrorMsg('');
+              setShowModal(true);
+            }}
+            className="flex items-center gap-2 px-4 py-2.5 bg-slate-700 hover:bg-slate-600 text-white font-semibold rounded-xl transition cursor-pointer text-sm"
+          >
+            <Plus className="w-4 h-4" />
+            Novo Orçamento
+          </button>
+        </div>
+      </div>
+
+      {/* Filters & Search */}
+      <div className="flex flex-col sm:flex-row gap-3">
+        <div className="relative flex-1">
+          <Search className="w-4 h-4 absolute left-3.5 top-3 text-slate-400" />
+          <input
+            type="text"
+            placeholder="Buscar por paciente ou descrição do orçamento..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full pl-10 pr-4 py-2 bg-slate-800/80 border border-slate-700 rounded-xl text-slate-100 placeholder-slate-400 text-sm focus:outline-none focus:border-teal-500"
+          />
+        </div>
+
+        <div className="flex items-center gap-2">
+          <Filter className="w-4 h-4 text-slate-400 shrink-0" />
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="bg-slate-800/80 border border-slate-700 text-slate-100 text-sm rounded-xl px-3 py-2 focus:outline-none focus:border-teal-500"
+          >
+            <option value="all">Todos os Status</option>
+            <option value="enviado">Enviado / Pendente</option>
+            <option value="aprovado">Aprovado</option>
+            <option value="recusado">Recusado</option>
+            <option value="rascunho">Rascunho</option>
+          </select>
+        </div>
       </div>
 
       {successMsg && (
@@ -143,7 +224,7 @@ export function BudgetsPage() {
         </div>
       )}
 
-      {errorMsg && !showModal && (
+      {errorMsg && !showModal && !showAiModal && (
         <div className="p-4 bg-rose-500/10 border border-rose-500/30 rounded-xl text-rose-400 text-sm flex items-center gap-2">
           <AlertCircle className="w-5 h-5 flex-shrink-0" />
           {errorMsg}
@@ -152,60 +233,109 @@ export function BudgetsPage() {
 
       {loading ? (
         <div className="text-center py-12 text-slate-400">Carregando orçamentos do banco...</div>
-      ) : budgets.length === 0 ? (
-        <div className="text-center py-12 text-slate-500 bg-slate-800/40 border border-slate-700/60 rounded-2xl">
-          Nenhum orçamento cadastrado ainda.
-        </div>
       ) : (
-        <div className="space-y-3">
-          {budgets.map((b) => (
-            <div
-              key={b.id}
-              className="bg-slate-800/50 border border-slate-700/60 rounded-2xl p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 transition"
-            >
-              <div className="space-y-1">
-                <div className="flex items-center gap-2">
-                  <User className="w-4 h-4 text-emerald-400" />
-                  <h3 className="font-semibold text-white">{b.patientName}</h3>
-                </div>
-                <p className="text-xs text-slate-300">{b.description}</p>
-                <span className="text-[11px] text-slate-500 block">
-                  Criado em {new Date(b.createdAt).toLocaleDateString('pt-BR')}
-                </span>
-              </div>
+        (() => {
+          const filtered = budgets.filter((b) => {
+            const matchesSearch =
+              b.patientName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+              b.description.toLowerCase().includes(searchTerm.toLowerCase());
+            const matchesStatus = statusFilter === 'all' || b.status === statusFilter;
+            return matchesSearch && matchesStatus;
+          });
 
-              <div className="flex items-center gap-4">
-                <div className="text-right">
-                  <span className="text-xs text-slate-400 block">Valor Total</span>
-                  <span className="text-lg font-bold text-emerald-400">
-                    R$ {b.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                  </span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => handleStatusChange(b.id, b.status)}
-                    className={`text-xs px-3 py-1.5 rounded-full font-medium transition cursor-pointer ${
-                      b.status === 'aprovado'
-                        ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20'
-                        : b.status === 'enviado'
-                        ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20 hover:bg-amber-500/20'
-                        : 'bg-slate-700 text-slate-300'
-                    }`}
-                  >
-                    {b.status === 'aprovado' ? '✓ APROVADO' : 'APROVAR?'}
-                  </button>
-                  <button
-                    onClick={() => setDeleteTargetId(b.id)}
-                    className="p-1.5 text-slate-500 hover:text-rose-400 rounded-lg hover:bg-slate-700/50 transition cursor-pointer"
-                    title="Excluir orçamento"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
+          if (filtered.length === 0) {
+            return (
+              <div className="text-center py-12 text-slate-500 bg-slate-800/40 border border-slate-700/60 rounded-2xl">
+                Nenhum orçamento encontrado com esses critérios.
               </div>
+            );
+          }
+
+          return (
+            <div className="space-y-3">
+              {filtered.map((b) => (
+                <div
+                  key={b.id}
+                  className="bg-slate-800/50 border border-slate-700/60 hover:border-slate-600 rounded-2xl p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 transition"
+                >
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <User className="w-4 h-4 text-emerald-400" />
+                      <h3 className="font-semibold text-white">{b.patientName}</h3>
+                    </div>
+                    <p className="text-xs text-slate-300">{b.description}</p>
+                    <span className="text-[11px] text-slate-500 block">
+                      Criado em {new Date(b.createdAt).toLocaleDateString('pt-BR')}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-4">
+                    <div className="text-right">
+                      <span className="text-xs text-slate-400 block">Valor Total</span>
+                      <span className="text-lg font-bold text-emerald-400">
+                        R$ {b.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => handleSendBudgetWhatsApp(b)}
+                        className="px-3 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs rounded-xl transition flex items-center gap-1.5 shadow-md shadow-emerald-500/10 cursor-pointer"
+                        title="Enviar orçamento pelo WhatsApp"
+                      >
+                        <MessageSquare className="w-3.5 h-3.5 fill-slate-950" />
+                        Enviar pelo WhatsApp
+                      </button>
+
+                      <button
+                        onClick={() => handleStatusChange(b.id, b.status)}
+                        className={`text-xs px-3 py-1.5 rounded-full font-semibold transition cursor-pointer flex items-center gap-1 ${
+                          b.status === 'aprovado'
+                            ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/20'
+                            : b.status === 'recusado'
+                            ? 'bg-rose-500/10 text-rose-400 border border-rose-500/30 hover:bg-rose-500/20'
+                            : 'bg-amber-500/10 text-amber-400 border border-amber-500/30 hover:bg-amber-500/20'
+                        }`}
+                      >
+                        {b.status === 'aprovado' && <Check className="w-3.5 h-3.5" />}
+                        {b.status === 'recusado' && <XCircle className="w-3.5 h-3.5" />}
+                        {b.status === 'aprovado' ? 'APROVADO' : b.status === 'recusado' ? 'RECUSADO' : 'PENDENTE / APROVAR'}
+                      </button>
+
+                      <button
+                        onClick={() => setDeleteTargetId(b.id)}
+                        className="p-1.5 text-slate-500 hover:text-rose-400 rounded-lg hover:bg-slate-700/50 transition cursor-pointer"
+                        title="Excluir orçamento"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
+          );
+        })()
+      )}
+
+      {/* Modal AI Budget */}
+      {showAiModal && (
+        <AiBudgetModal
+          patients={patients}
+          onClose={() => setShowAiModal(false)}
+          onSaveBudget={async (data) => {
+            await supabaseServices.createBudget({
+              clinicId: '',
+              patientId: data.patientId,
+              patientName: data.patientName,
+              description: data.description,
+              amount: data.amount,
+              status: data.status,
+            });
+            setSuccessMsg('Orçamento gerado pela IA salvo com sucesso.');
+            setTimeout(() => setSuccessMsg(''), 4000);
+            await loadData();
+          }}
+        />
       )}
 
       {/* Modal - Novo Orçamento */}

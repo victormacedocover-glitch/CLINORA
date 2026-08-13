@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { supabaseServices, Appointment, Patient, ProcedureItem } from '../lib/supabaseServices';
-import { Calendar as CalendarIcon, Plus, Clock, User, FileText, CheckCircle2, AlertCircle, Trash2 } from 'lucide-react';
+import { supabaseServices, Appointment, Patient, ProcedureItem, formatClinicAddress } from '../lib/supabaseServices';
+import { isValidPhoneBR, openWhatsApp } from '../lib/whatsapp';
+import { Calendar as CalendarIcon, Plus, Clock, User, FileText, CheckCircle2, AlertCircle, Trash2, MessageSquare } from 'lucide-react';
 import { ConfirmModal } from '../components/ConfirmModal';
 
 export function AgendaPage() {
@@ -87,6 +88,40 @@ export function AgendaPage() {
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleSendAppointmentWhatsApp = async (app: Appointment) => {
+    setErrorMsg('');
+    let matched = app.patientId ? patients.find((p) => p.id === app.patientId) : undefined;
+
+    if (!matched && app.patientName) {
+      const nameLower = app.patientName.trim().toLowerCase();
+      matched = patients.find((p) => p.name.trim().toLowerCase() === nameLower);
+    }
+
+    const phone = matched?.phone;
+
+    if (!isValidPhoneBR(phone)) {
+      setErrorMsg(`Este paciente (${app.patientName}) não possui um telefone cadastrado.`);
+      return;
+    }
+
+    const [yyyy, mm, dd] = app.date.split('-');
+    const dateFormatted = `${dd}/${mm}/${yyyy}`;
+
+    const clinicDetails = await supabaseServices.getClinicDetails();
+    const clinicName = clinicDetails.name || 'nossa clínica';
+    const addressBlock = formatClinicAddress(clinicDetails, '📍 Endereço:');
+
+    let msg = `Olá, ${app.patientName}! 😊\n\nPassando para confirmar seu atendimento na ${clinicName}.\n\n📅 Data: ${dateFormatted}\n⏰ Horário: ${app.time}\n🦷 Procedimento: ${app.procedure}`;
+
+    if (addressBlock) {
+      msg += `\n\n${addressBlock}`;
+    }
+
+    msg += `\n\nEsperamos você! 😊\n\n${clinicName}`;
+
+    openWhatsApp(phone, msg);
   };
 
   const confirmDelete = async () => {
@@ -207,7 +242,16 @@ export function AgendaPage() {
                 </div>
               </div>
 
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => handleSendAppointmentWhatsApp(app)}
+                  className="px-2.5 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs rounded-xl transition flex items-center gap-1 cursor-pointer shadow-sm"
+                  title="Enviar lembrete pelo WhatsApp"
+                >
+                  <MessageSquare className="w-3.5 h-3.5 fill-slate-950" />
+                  <span className="hidden sm:inline">WhatsApp</span>
+                </button>
+
                 <button
                   onClick={async () => {
                     const nextStatus =

@@ -43,7 +43,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigate }) => {
       icon: TrendingUp,
       title: 'Aumento de Faturamento',
       description:
-        'Acompanhe orçamentos pendentes e feche mais procedimentos com o funil visual de oportunidades.',
+        'Acompanhe orçamentos pendentes e feche mais procedimentos com o controle inteligente de orçamentos.',
     },
     {
       icon: CheckCircle2,

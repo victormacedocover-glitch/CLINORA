@@ -86,6 +86,76 @@ export interface ClinicAuditLog {
   createdAt: string;
 }
 
+export interface ClinicDetails {
+  id: string;
+  name: string;
+  phone?: string;
+  email?: string;
+  cep?: string;
+  street?: string;
+  number?: string;
+  complement?: string;
+  neighborhood?: string;
+  city?: string;
+  state?: string;
+}
+
+export function formatClinicAddress(clinic: ClinicDetails | null | undefined, header: string = '📍 Endereço:'): string {
+  if (!clinic) return '';
+
+  const streetPart = (clinic.street || '').trim();
+  const numberPart = (clinic.number || '').trim();
+  const complementPart = (clinic.complement || '').trim();
+  const neighborhoodPart = (clinic.neighborhood || '').trim();
+  const cityPart = (clinic.city || '').trim();
+  const statePart = (clinic.state || '').trim();
+  const cepPart = (clinic.cep || '').trim();
+
+  // Street line
+  let streetLine = '';
+  if (streetPart) {
+    streetLine = streetPart;
+    if (numberPart) streetLine += `, ${numberPart}`;
+    if (complementPart) streetLine += ` - ${complementPart}`;
+  } else if (numberPart || complementPart) {
+    streetLine = [numberPart ? `Nº ${numberPart}` : '', complementPart].filter(Boolean).join(' - ');
+  }
+
+  // City / State / Neighborhood line
+  let cityStatePart = '';
+  if (cityPart && statePart) {
+    cityStatePart = `${cityPart}/${statePart}`;
+  } else if (cityPart) {
+    cityStatePart = cityPart;
+  } else if (statePart) {
+    cityStatePart = statePart;
+  }
+
+  let neighborhoodLine = '';
+  if (neighborhoodPart && cityStatePart) {
+    neighborhoodLine = `${neighborhoodPart} - ${cityStatePart}`;
+  } else if (neighborhoodPart) {
+    neighborhoodLine = neighborhoodPart;
+  } else if (cityStatePart) {
+    neighborhoodLine = cityStatePart;
+  }
+
+  // CEP line
+  let cepLine = cepPart ? `CEP: ${cepPart}` : '';
+
+  const bodyLines = [streetLine, neighborhoodLine, cepLine].filter((l) => l.length > 0);
+
+  if (bodyLines.length === 0) {
+    return '';
+  }
+
+  const clinicNameLine = (clinic.name || '').trim();
+  const headerBlock = header ? `${header}\n` : '';
+  const nameBlock = clinicNameLine ? `${clinicNameLine}\n` : '';
+
+  return `${headerBlock}${nameBlock}${bodyLines.join('\n')}`;
+}
+
 // ============================================================================
 // HELPER FOR ACTIVE USER & CLINIC ID RESOLUTION
 // ============================================================================
@@ -302,6 +372,90 @@ function setLocalItems<T>(key: string, value: T[], notify: boolean = true): void
 // ============================================================================
 
 export const supabaseServices = {
+  // DADOS E ENDEREÇO DA CLÍNICA
+  async getClinicDetails(clinicId?: string): Promise<ClinicDetails> {
+    const activeClinicId = clinicId || (await getActiveClinicId());
+    if (!activeClinicId) {
+      return { id: '', name: 'Minha Clínica' };
+    }
+
+    const key = getStorageKey('clinic_details', activeClinicId);
+    const local = getLocalItems<ClinicDetails>(key)[0];
+
+    if (isSupabaseConfigured) {
+      try {
+        const { data, error } = await supabase
+          .from('clinics')
+          .select('*')
+          .eq('id', activeClinicId)
+          .maybeSingle();
+
+        if (!error && data) {
+          const details: ClinicDetails = {
+            id: data.id,
+            name: data.name || local?.name || 'Minha Clínica',
+            phone: data.phone || local?.phone || '',
+            email: data.email || local?.email || '',
+            cep: data.cep || local?.cep || '',
+            street: data.street || local?.street || '',
+            number: data.number || local?.number || '',
+            complement: data.complement || local?.complement || '',
+            neighborhood: data.neighborhood || local?.neighborhood || '',
+            city: data.city || local?.city || '',
+            state: data.state || local?.state || '',
+          };
+          setLocalItems(key, [details], false);
+          return details;
+        }
+      } catch (err) {
+        console.warn('Supabase fetch clinic details warning:', err);
+      }
+    }
+
+    return local || { id: activeClinicId, name: 'Minha Clínica' };
+  },
+
+  async updateClinicDetails(updated: Partial<ClinicDetails>, clinicId?: string): Promise<ClinicDetails> {
+    const activeClinicId = clinicId || (await getActiveClinicId());
+    if (!activeClinicId) throw new Error('Clínica não identificada');
+
+    const current = await this.getClinicDetails(activeClinicId);
+    const merged: ClinicDetails = { ...current, ...updated, id: activeClinicId };
+
+    if (isSupabaseConfigured) {
+      try {
+        const payload: Record<string, any> = {};
+        if (updated.name !== undefined) payload.name = updated.name;
+        if (updated.phone !== undefined) payload.phone = updated.phone;
+        if (updated.email !== undefined) payload.email = updated.email;
+        if (updated.cep !== undefined) payload.cep = updated.cep;
+        if (updated.street !== undefined) payload.street = updated.street;
+        if (updated.number !== undefined) payload.number = updated.number;
+        if (updated.complement !== undefined) payload.complement = updated.complement;
+        if (updated.neighborhood !== undefined) payload.neighborhood = updated.neighborhood;
+        if (updated.city !== undefined) payload.city = updated.city;
+        if (updated.state !== undefined) payload.state = updated.state;
+
+        const { error } = await supabase
+          .from('clinics')
+          .update(payload)
+          .eq('id', activeClinicId);
+
+        if (error) {
+          console.warn('Supabase update clinic warning:', error);
+        }
+      } catch (err) {
+        console.warn('Supabase update clinic exception:', err);
+      }
+    }
+
+    const key = getStorageKey('clinic_details', activeClinicId);
+    setLocalItems(key, [merged]);
+    await this.logClinicAction('Dados da Clínica Atualizados', `Nome: ${merged.name}`, activeClinicId);
+
+    return merged;
+  },
+
   // AUDIT LOGS DA CLÍNICA
   async logClinicAction(action: string, details?: string, clinicId?: string): Promise<void> {
     const activeClinicId = clinicId || (await getActiveClinicId());
@@ -849,7 +1003,7 @@ export const supabaseServices = {
       try {
         const { data, error } = await supabase
           .from('budgets')
-          .select('*, patients(name)')
+          .select('*, patients(id, name, phone)')
           .eq('clinic_id', activeClinicId)
           .order('created_at', { ascending: false });
 
@@ -857,7 +1011,7 @@ export const supabaseServices = {
           const mapped: Budget[] = data.map((d: any) => ({
             id: d.id,
             clinicId: d.clinic_id,
-            patientId: d.patient_id || undefined,
+            patientId: d.patient_id || d.patients?.id || undefined,
             patientName: d.patients?.name || d.patient_name || 'Paciente',
             description: d.description,
             amount: Number(d.amount),
@@ -879,18 +1033,37 @@ export const supabaseServices = {
     if (!activeClinicId) throw new Error('Clínica não identificada');
 
     let createdBudget: Budget | null = null;
+    let resolvedPatientId = b.patientId || null;
 
     if (isSupabaseConfigured) {
+      // If patientId is missing but patientName is present, attempt to resolve patient_id from patients table
+      if (!resolvedPatientId && b.patientName && b.patientName !== 'Paciente') {
+        try {
+          const { data: foundPat } = await supabase
+            .from('patients')
+            .select('id')
+            .eq('clinic_id', activeClinicId)
+            .ilike('name', b.patientName.trim())
+            .maybeSingle();
+
+          if (foundPat?.id) {
+            resolvedPatientId = foundPat.id;
+          }
+        } catch (pErr) {
+          console.warn('Patient lookup during budget creation warning:', pErr);
+        }
+      }
+
       const { data, error } = await supabase
         .from('budgets')
         .insert({
           clinic_id: activeClinicId,
-          patient_id: b.patientId || null,
+          patient_id: resolvedPatientId,
           description: b.description,
           amount: b.amount,
           status: b.status,
         })
-        .select('*, patients(name)')
+        .select('*, patients(id, name, phone)')
         .single();
 
       if (error) {
@@ -902,7 +1075,7 @@ export const supabaseServices = {
         createdBudget = {
           id: data.id,
           clinicId: data.clinic_id,
-          patientId: data.patient_id || undefined,
+          patientId: data.patient_id || resolvedPatientId || undefined,
           patientName: data.patients?.name || b.patientName,
           description: data.description,
           amount: Number(data.amount),
@@ -915,6 +1088,7 @@ export const supabaseServices = {
     if (!createdBudget) {
       createdBudget = {
         ...b,
+        patientId: resolvedPatientId || b.patientId,
         clinicId: activeClinicId,
         id: 'b_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
         createdAt: new Date().toISOString(),
