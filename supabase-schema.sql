@@ -192,19 +192,22 @@ RETURNS BOOLEAN AS $$
 $$ LANGUAGE sql STABLE SECURITY DEFINER;
 
 CREATE OR REPLACE FUNCTION public.get_user_clinic_id()
-RETURNS UUID AS $$
+RETURNS UUID
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
 DECLARE
   v_clinic_id UUID;
   v_user_id UUID;
-  v_user_email TEXT;
-  v_full_name TEXT;
 BEGIN
   v_user_id := auth.uid();
   IF v_user_id IS NULL THEN
     RETURN NULL;
   END IF;
 
-  -- 1. Tenta buscar em profiles
+  -- 1. Buscar do perfil do usuário (Leitura pura)
   SELECT clinic_id INTO v_clinic_id
   FROM public.profiles
   WHERE user_id = v_user_id AND clinic_id IS NOT NULL
@@ -214,39 +217,91 @@ BEGIN
     RETURN v_clinic_id;
   END IF;
 
-  -- 2. Tenta buscar em access_entitlements
+  -- 2. Fallback de leitura em access_entitlements (Sem INSERT/UPDATE)
+  SELECT clinic_id INTO v_clinic_id
+  FROM public.access_entitlements
+  WHERE user_id = v_user_id AND clinic_id IS NOT NULL
+  LIMIT 1;
+
+  RETURN v_clinic_id;
+END;
+$$;
+
+-- Função explícita para inicializar conta do usuário de forma idempotente e segura
+CREATE OR REPLACE FUNCTION public.initialize_user_account()
+RETURNS UUID
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_user_id UUID;
+  v_clinic_id UUID;
+  v_user_email TEXT;
+  v_full_name TEXT;
+BEGIN
+  v_user_id := auth.uid();
+  IF v_user_id IS NULL THEN
+    RAISE EXCEPTION 'Usuário não autenticado';
+  END IF;
+
+  -- 1. Verificar se já existe perfil com clinic_id
+  SELECT clinic_id INTO v_clinic_id
+  FROM public.profiles
+  WHERE user_id = v_user_id AND clinic_id IS NOT NULL
+  LIMIT 1;
+
+  IF v_clinic_id IS NOT NULL THEN
+    RETURN v_clinic_id;
+  END IF;
+
+  -- 2. Verificar se já existe vínculo em access_entitlements
   SELECT clinic_id INTO v_clinic_id
   FROM public.access_entitlements
   WHERE user_id = v_user_id AND clinic_id IS NOT NULL
   LIMIT 1;
 
   IF v_clinic_id IS NOT NULL THEN
-    UPDATE public.profiles SET clinic_id = v_clinic_id WHERE user_id = v_user_id;
+    SELECT email INTO v_user_email FROM auth.users WHERE id = v_user_id;
+    v_full_name := COALESCE(SPLIT_PART(v_user_email, '@', 1), 'Usuário');
+
+    INSERT INTO public.profiles (user_id, clinic_id, full_name, email, role)
+    VALUES (v_user_id, v_clinic_id, v_full_name, COALESCE(v_user_email, ''), 'clinic_admin')
+    ON CONFLICT (user_id) DO UPDATE
+    SET clinic_id = EXCLUDED.clinic_id,
+        updated_at = NOW();
+
     RETURN v_clinic_id;
   END IF;
 
-  -- 3. Auto-Healing: Usuário autenticado sem clínica -> cria automaticamente
+  -- 3. Obter e-mail para criar única clínica inicial
   SELECT email INTO v_user_email FROM auth.users WHERE id = v_user_id;
   v_full_name := COALESCE(SPLIT_PART(v_user_email, '@', 1), 'Usuário');
 
+  -- Criar clínica
   INSERT INTO public.clinics (name, phone, email, status)
   VALUES ('Clínica de ' || v_full_name, '(11) 99999-9999', COALESCE(v_user_email, ''), 'active')
   RETURNING id INTO v_clinic_id;
 
+  -- Vincular no profile
   INSERT INTO public.profiles (user_id, clinic_id, full_name, email, role)
   VALUES (v_user_id, v_clinic_id, v_full_name, COALESCE(v_user_email, ''), 'clinic_admin')
   ON CONFLICT (user_id) DO UPDATE
   SET clinic_id = EXCLUDED.clinic_id,
-      full_name = EXCLUDED.full_name;
+      full_name = EXCLUDED.full_name,
+      updated_at = NOW();
 
+  -- Vincular em access_entitlements
   INSERT INTO public.access_entitlements (user_id, clinic_id, access_type, status)
   VALUES (v_user_id, v_clinic_id, 'lifetime', 'active')
   ON CONFLICT (user_id) DO UPDATE
-  SET clinic_id = EXCLUDED.clinic_id;
+  SET clinic_id = EXCLUDED.clinic_id,
+      status = 'active',
+      updated_at = NOW();
 
   RETURN v_clinic_id;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$;
 
 CREATE OR REPLACE FUNCTION public.create_initial_clinic(
   p_name VARCHAR(255),

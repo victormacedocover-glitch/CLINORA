@@ -10,33 +10,44 @@ export function RelatoriosPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    loadData();
-    const handleDataChanged = () => {
-      loadData();
-    };
-    window.addEventListener('clinora_data_changed', handleDataChanged);
-    return () => window.removeEventListener('clinora_data_changed', handleDataChanged);
-  }, []);
+    let isMounted = true;
 
-  const loadData = async () => {
-    setLoading(true);
-    try {
-      const [pats, budgs, txs, apps] = await Promise.all([
-        supabaseServices.getPatients(),
-        supabaseServices.getBudgets(),
-        supabaseServices.getTransactions(),
-        supabaseServices.getAppointments(),
-      ]);
-      setPatients(pats);
-      setBudgets(budgs);
-      setTransactions(txs);
-      setAppointments(apps);
-    } catch (err) {
-      console.error('Error loading reports data:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
+    const loadData = async (isInitial = false) => {
+      if (isInitial) setLoading(true);
+      try {
+        const [pats, budgs, txs, apps] = await Promise.all([
+          supabaseServices.getPatients(),
+          supabaseServices.getBudgets(),
+          supabaseServices.getTransactions(),
+          supabaseServices.getAppointments(),
+        ]);
+        if (isMounted) {
+          setPatients(pats);
+          setBudgets(budgs);
+          setTransactions(txs);
+          setAppointments(apps);
+        }
+      } catch (err) {
+        console.error('Error loading reports data:', err);
+      } finally {
+        if (isMounted && isInitial) {
+          setLoading(false);
+        }
+      }
+    };
+
+    loadData(true);
+
+    const handleDataChanged = () => {
+      loadData(false);
+    };
+
+    window.addEventListener('clinora_data_changed', handleDataChanged);
+    return () => {
+      isMounted = false;
+      window.removeEventListener('clinora_data_changed', handleDataChanged);
+    };
+  }, []);
 
   const totalReceitas = transactions.filter((t) => t.type === 'receita').reduce((a, b) => a + b.amount, 0);
   const totalDespesas = transactions.filter((t) => t.type === 'despesa').reduce((a, b) => a + b.amount, 0);

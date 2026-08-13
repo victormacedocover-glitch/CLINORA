@@ -79,9 +79,17 @@ export default function App() {
         userEmail === 'victorbeirigo76@gmail.com' ||
         userEmail === 'admin@clinora.com';
 
-      // 1. Fetch profile
-      let role: UserRole = isSuperAdminEmail ? 'super_admin' : 'clinic_admin';
+      // 1. Resolve clinic_id and ensure user profile initialization
       let clinicId: string | undefined = undefined;
+      try {
+        const resolvedCid = await getActiveClinicId();
+        if (resolvedCid) clinicId = resolvedCid;
+      } catch (rErr) {
+        console.warn('Error initializing or resolving clinic ID:', rErr);
+      }
+
+      // 2. Fetch profile
+      let role: UserRole = isSuperAdminEmail ? 'super_admin' : 'clinic_admin';
       let clinicName = meta.clinic_name || 'Minha Clínica';
 
       try {
@@ -109,7 +117,7 @@ export default function App() {
         console.warn('Error fetching user profile:', pErr);
       }
 
-      // 2. Fetch entitlement status
+      // 3. Fetch entitlement status
       let hasActiveSub = false;
       try {
         const { data: entData } = await supabase
@@ -127,16 +135,6 @@ export default function App() {
         console.warn('Error fetching entitlement:', eErr);
       }
 
-      // 3. Resolve or auto-create clinicId if missing
-      if (!clinicId) {
-        try {
-          const resolvedCid = await getActiveClinicId();
-          if (resolvedCid) clinicId = resolvedCid;
-        } catch (rErr) {
-          console.warn('Error resolving clinic ID:', rErr);
-        }
-      }
-
       setUser({
         id: u.id,
         clinicId: clinicId,
@@ -148,13 +146,6 @@ export default function App() {
 
       setSubscriptionStatus(role === 'super_admin' || hasActiveSub ? 'active' : 'pending');
     };
-
-    // Check active session on mount
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user) {
-        fetchUserProfile(session.user);
-      }
-    });
 
     const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (session?.user) {

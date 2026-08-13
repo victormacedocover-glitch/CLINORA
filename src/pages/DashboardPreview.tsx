@@ -42,38 +42,49 @@ export const DashboardPreview: React.FC<DashboardPreviewProps> = ({
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    loadDashboardData();
-    const handleDataChanged = () => {
-      loadDashboardData();
+    let isMounted = true;
+
+    const loadDashboardData = async (isInitial = false) => {
+      if (isInitial) setLoading(true);
+      try {
+        const [pats, apps, budgs, txs, opps, tsks] = await Promise.all([
+          supabaseServices.getPatients(),
+          supabaseServices.getAppointments(),
+          supabaseServices.getBudgets(),
+          supabaseServices.getTransactions(),
+          supabaseServices.getOpportunities(),
+          supabaseServices.getTasks(),
+        ]);
+
+        if (isMounted) {
+          setPatients(pats);
+          setAppointments(apps);
+          setBudgets(budgs);
+          setTransactions(txs);
+          setOpportunities(opps);
+          setTasks(tsks);
+        }
+      } catch (err) {
+        console.error('Error loading dashboard data:', err);
+      } finally {
+        if (isMounted && isInitial) {
+          setLoading(false);
+        }
+      }
     };
+
+    loadDashboardData(true);
+
+    const handleDataChanged = () => {
+      loadDashboardData(false);
+    };
+
     window.addEventListener('clinora_data_changed', handleDataChanged);
-    return () => window.removeEventListener('clinora_data_changed', handleDataChanged);
+    return () => {
+      isMounted = false;
+      window.removeEventListener('clinora_data_changed', handleDataChanged);
+    };
   }, []);
-
-  const loadDashboardData = async () => {
-    setLoading(true);
-    try {
-      const [pats, apps, budgs, txs, opps, tsks] = await Promise.all([
-        supabaseServices.getPatients(),
-        supabaseServices.getAppointments(),
-        supabaseServices.getBudgets(),
-        supabaseServices.getTransactions(),
-        supabaseServices.getOpportunities(),
-        supabaseServices.getTasks(),
-      ]);
-
-      setPatients(pats);
-      setAppointments(apps);
-      setBudgets(budgs);
-      setTransactions(txs);
-      setOpportunities(opps);
-      setTasks(tsks);
-    } catch (err) {
-      console.error('Error loading dashboard data:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const todayStr = new Date().toISOString().split('T')[0];
   const todayApps = appointments.filter((a) => a.date === todayStr || !a.date);
