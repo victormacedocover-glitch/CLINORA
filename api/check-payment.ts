@@ -66,7 +66,8 @@ export default async function handler(req: any, res: any) {
           targetClinicId = profile.clinic_id;
         } else {
           const authList = await supabaseAdmin.auth.admin.listUsers();
-          const found = authList.data?.users?.find((u) => u.email?.toLowerCase() === email.toLowerCase());
+          const users = (authList.data as any)?.users || [];
+          const found = users.find((u: any) => u.email?.toLowerCase() === email.toLowerCase());
           if (found) {
             targetUid = found.id;
           }

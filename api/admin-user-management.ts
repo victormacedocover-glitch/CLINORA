@@ -136,12 +136,47 @@ export default async function handler(req: any, res: any) {
           paymentsRes,
           auditLogsRes,
         ] = await Promise.all([
-          supabaseAdmin.auth.admin.listUsers().catch((err) => ({ data: { users: [] }, error: err })),
-          supabaseAdmin.from('profiles').select('*').catch((err) => ({ data: [], error: err })),
-          supabaseAdmin.from('clinics').select('*').catch((err) => ({ data: [], error: err })),
-          supabaseAdmin.from('access_entitlements').select('*').catch((err) => ({ data: [], error: err })),
-          supabaseAdmin.from('payments').select('*').order('created_at', { ascending: false }).catch((err) => ({ data: [], error: err })),
-          supabaseAdmin.from('admin_audit_logs').select('*').order('created_at', { ascending: false }).limit(100).catch((err) => ({ data: [], error: err })),
+          supabaseAdmin.auth.admin.listUsers().catch((err: any) => ({ data: { users: [] }, error: err })),
+          (async () => {
+            try {
+              const res = await supabaseAdmin.from('profiles').select('*');
+              return res;
+            } catch (err) {
+              return { data: [], error: err };
+            }
+          })(),
+          (async () => {
+            try {
+              const res = await supabaseAdmin.from('clinics').select('*');
+              return res;
+            } catch (err) {
+              return { data: [], error: err };
+            }
+          })(),
+          (async () => {
+            try {
+              const res = await supabaseAdmin.from('access_entitlements').select('*');
+              return res;
+            } catch (err) {
+              return { data: [], error: err };
+            }
+          })(),
+          (async () => {
+            try {
+              const res = await supabaseAdmin.from('payments').select('*').order('created_at', { ascending: false });
+              return res;
+            } catch (err) {
+              return { data: [], error: err };
+            }
+          })(),
+          (async () => {
+            try {
+              const res = await supabaseAdmin.from('admin_audit_logs').select('*').order('created_at', { ascending: false }).limit(100);
+              return res;
+            } catch (err) {
+              return { data: [], error: err };
+            }
+          })(),
         ]);
 
         const authUsers = (authUsersRes.data as any)?.users || [];
