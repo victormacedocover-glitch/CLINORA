@@ -1,0 +1,24 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "vite",
+  "outputDirectory": "dist",
+  "cleanUrls": true,
+  "rewrites": [
+    {
+      "source": "/api/ai/budget",
+      "destination": "/api/ai-budget"
+    },
+    {
+      "source": "/api/ai/followup",
+      "destination": "/api/ai-followup"
+    },
+    {
+      "source": "/.netlify/functions/:match*",
+      "destination": "/api/:match*"
+    },
+    {
+      "source": "/((?!api/|.*\\..*).*)",
+      "destination": "/index.html"
+    }
+  ]
+}

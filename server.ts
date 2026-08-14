@@ -2,15 +2,49 @@ import express from 'express';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
 
+import aiBudgetHandler from './api/ai-budget';
+import aiFollowupHandler from './api/ai-followup';
+import createPreferenceHandler from './api/create-preference';
+import mercadopagoWebhookHandler from './api/mercadopago-webhook';
+import checkPaymentHandler from './api/check-payment';
+import adminUserManagementHandler from './api/admin-user-management';
+
 async function startServer() {
   const app = express();
   const PORT = 3000;
 
   app.use(express.json());
 
-  // API Routes
+  // Health check
   app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  });
+
+  // Gemini AI Routes
+  app.all(['/api/ai/budget', '/api/ai-budget'], (req, res) => {
+    aiBudgetHandler(req, res);
+  });
+
+  app.all(['/api/ai/followup', '/api/ai-followup'], (req, res) => {
+    aiFollowupHandler(req, res);
+  });
+
+  // Mercado Pago & Payment Routes
+  app.all(['/api/create-preference', '/.netlify/functions/create-preference'], (req, res) => {
+    createPreferenceHandler(req, res);
+  });
+
+  app.all(['/api/mercadopago-webhook', '/.netlify/functions/mercadopago-webhook'], (req, res) => {
+    mercadopagoWebhookHandler(req, res);
+  });
+
+  app.all(['/api/check-payment', '/.netlify/functions/check-payment'], (req, res) => {
+    checkPaymentHandler(req, res);
+  });
+
+  // Admin Routes
+  app.all(['/api/admin-user-management', '/.netlify/functions/admin-user-management'], (req, res) => {
+    adminUserManagementHandler(req, res);
   });
 
   // Vite middleware in development

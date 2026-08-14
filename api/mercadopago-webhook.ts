@@ -1,0 +1,89 @@
+import { createClient } from '@supabase/supabase-js';
+
+export default async function handler(req: any, res: any) {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+
+  // Mercado Pago can send webhooks as POST or verification GET
+  if (req.method !== 'POST' && req.method !== 'GET') {
+    return res.status(405).json({ error: 'Method Not Allowed' });
+  }
+
+  try {
+    const accessToken = process.env.MERCADOPAGO_ACCESS_TOKEN;
+    const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
+    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    const query = req.query || {};
+    const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : req.body || {};
+
+    const type = query.type || query.topic || body.type || body.topic;
+    const dataId = query['data.id'] || query.id || body?.data?.id || body?.id;
+
+    console.log(`[Mercado Pago Webhook] Received notification: type=${type}, dataId=${dataId}`);
+
+    if (type === 'payment' && dataId && accessToken) {
+      // Query payment details from Mercado Pago
+      const mpRes = await fetch(`https://api.mercadopago.com/v1/payments/${dataId}`, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
+
+      if (mpRes.ok) {
+        const paymentData = await mpRes.json();
+        console.log(`[Mercado Pago Webhook] Payment ${dataId} status: ${paymentData.status}`);
+
+        if (paymentData.status === 'approved' && supabaseUrl && serviceRoleKey) {
+          const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
+            auth: { persistSession: false },
+          });
+
+          let externalRef: any = {};
+          try {
+            if (paymentData.external_reference) {
+              externalRef = JSON.parse(paymentData.external_reference);
+            }
+          } catch {
+            // plain string or empty
+          }
+
+          const payerEmail = externalRef.email || paymentData.payer?.email;
+          const userId = externalRef.userId;
+
+          console.log(`[Mercado Pago Webhook] Granting access for email=${payerEmail}, userId=${userId}`);
+
+          if (userId) {
+            await supabaseAdmin
+              .from('users')
+              .update({
+                subscription_status: 'active',
+                plan: 'pro_lifetime',
+                updated_at: new Date().toISOString(),
+              })
+              .eq('id', userId);
+          } else if (payerEmail) {
+            await supabaseAdmin
+              .from('users')
+              .update({
+                subscription_status: 'active',
+                plan: 'pro_lifetime',
+                updated_at: new Date().toISOString(),
+              })
+              .eq('email', payerEmail);
+          }
+        }
+      }
+    }
+
+    return res.status(200).json({ received: true });
+  } catch (err: any) {
+    console.error('[Mercado Pago Webhook] Error processing:', err);
+    return res.status(200).json({ received: true, error: err.message });
+  }
+}
