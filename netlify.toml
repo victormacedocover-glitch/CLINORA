@@ -1,16 +1,5 @@
 [build]
   publish = "dist"
-  functions = "netlify/functions"
-
-[[redirects]]
-  from = "/api/ai/budget"
-  to = "/.netlify/functions/ai-budget"
-  status = 200
-
-[[redirects]]
-  from = "/api/ai/followup"
-  to = "/.netlify/functions/ai-followup"
-  status = 200
 
 [[redirects]]
   from = "/*"

@@ -100,7 +100,7 @@ export interface ClinicDetails {
   state?: string;
 }
 
-export function formatClinicAddress(clinic: ClinicDetails | null | undefined, header: string = '📍 Endereço:'): string {
+export function formatClinicAddress(clinic: ClinicDetails | null | undefined, header: string = 'Endereço:'): string {
   if (!clinic) return '';
 
   const streetPart = (clinic.street || '').trim();

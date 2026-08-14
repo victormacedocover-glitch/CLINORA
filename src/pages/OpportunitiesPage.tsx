@@ -28,34 +28,10 @@ export function OpportunitiesPage() {
   const [copySuccess, setCopySuccess] = useState(false);
   const [followupError, setFollowupError] = useState('');
 
-  const openFollowupModal = async (op: Opportunity) => {
+  const openFollowupModal = (op: Opportunity) => {
     setSelectedOppForFollowup(op);
-    setAiMessage('');
     setFollowupError('');
-    setGeneratingAi(true);
-
-    try {
-      const res = await fetch('/api/ai/followup', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          patientName: op.patientName,
-          contextType: `Oportunidade CRM — Estágio: ${op.status.replace('_', ' ')}`,
-          details: `Interesse em "${op.title}" com valor previsto de R$ ${op.value.toLocaleString('pt-BR')}.`,
-          clinicName: 'CLINORA',
-        }),
-      });
-      const data = await res.json();
-      if (data.success && data.message) {
-        setAiMessage(data.message);
-      } else {
-        setAiMessage(`Olá, ${op.patientName}! 😊\n\nPassando para saber se você tem alguma dúvida sobre a proposta "${op.title}". Estamos à disposição para ajudar você a agendar!`);
-      }
-    } catch (err) {
-      setAiMessage(`Olá, ${op.patientName}! 😊\n\nPassando para saber se você tem alguma dúvida sobre a proposta "${op.title}". Podemos agendar seu atendimento?`);
-    } finally {
-      setGeneratingAi(false);
-    }
+    setAiMessage(`Olá, ${op.patientName}!\n\nPassando para saber se você tem alguma dúvida sobre a proposta "${op.title}" no valor de R$ ${op.value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}.\n\nEstamos à disposição para ajudar você a agendar seu atendimento!`);
   };
 
   const handleSendWhatsAppOpp = (op: Opportunity) => {
@@ -261,7 +237,7 @@ export function OpportunitiesPage() {
                           <button
                             onClick={() => openFollowupModal(op)}
                             className="text-[11px] font-bold flex items-center gap-1 px-2.5 py-1 bg-emerald-500 text-slate-950 rounded-lg hover:bg-emerald-400 transition cursor-pointer shadow-sm"
-                            title="Enviar WhatsApp com IA"
+                            title="Enviar WhatsApp"
                           >
                             <MessageSquare className="w-3 h-3 fill-slate-950" />
                             WhatsApp
@@ -385,17 +361,17 @@ export function OpportunitiesPage() {
         onClose={() => setDeleteTargetId(null)}
       />
 
-      {/* Modal - Follow-up CRM com IA */}
+      {/* Modal - Follow-up CRM */}
       {selectedOppForFollowup && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4">
           <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg p-6 space-y-5 shadow-2xl">
             <div className="flex justify-between items-center pb-3 border-b border-slate-800">
               <div className="flex items-center gap-2.5">
                 <div className="p-2 bg-emerald-500/15 text-emerald-400 rounded-xl">
-                  <Sparkles className="w-5 h-5" />
+                  <MessageSquare className="w-5 h-5" />
                 </div>
                 <div>
-                  <h2 className="text-base font-bold text-white">Follow-up com IA (CRM)</h2>
+                  <h2 className="text-base font-bold text-white">Acompanhamento de Oportunidade (CRM)</h2>
                   <p className="text-xs text-slate-400">{selectedOppForFollowup.patientName} — {selectedOppForFollowup.title}</p>
                 </div>
               </div>

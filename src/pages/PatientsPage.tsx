@@ -226,7 +226,7 @@ export function PatientsPage() {
                     <button
                       onClick={() => setSelectedPatientForDetail(patient)}
                       className="p-1.5 text-slate-400 hover:text-teal-400 rounded-lg hover:bg-slate-700/50 transition cursor-pointer"
-                      title="Ver prontuário e gerar follow-up com IA"
+                      title="Ver prontuário e enviar mensagens"
                     >
                       <Eye className="w-4 h-4" />
                     </button>
@@ -279,7 +279,7 @@ export function PatientsPage() {
                   className="w-full mt-2 py-2 bg-slate-900 hover:bg-slate-700/70 text-teal-400 text-xs font-semibold rounded-xl border border-slate-700/60 transition flex items-center justify-center gap-2 cursor-pointer"
                 >
                   <Eye className="w-3.5 h-3.5" />
-                  Ver Prontuário & IA Follow-up
+                  Ver Prontuário & WhatsApp
                 </button>
               </div>
             </div>

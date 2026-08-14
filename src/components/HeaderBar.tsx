@@ -19,8 +19,7 @@ import {
   supabaseServices,
   Patient,
   Appointment,
-  Budget,
-  Task
+  Budget
 } from '../lib/supabaseServices';
 
 export interface AppNotification {
@@ -79,10 +78,9 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
   const loadAndGenerateNotifications = async () => {
     try {
       const todayStr = new Date().toISOString().split('T')[0];
-      const [apps, budgets, tasks] = await Promise.all([
+      const [apps, budgets] = await Promise.all([
         supabaseServices.getAppointments(),
         supabaseServices.getBudgets(),
-        supabaseServices.getTasks(),
       ]);
 
       const generated: AppNotification[] = [];
@@ -112,20 +110,6 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
           date: 'Recente',
           read: false,
           route: '/orcamentos',
-        });
-      }
-
-      // 3. Check overdue or pending tasks
-      const pendingTasks = tasks.filter((t) => t.status !== 'concluida');
-      if (pendingTasks.length > 0) {
-        generated.push({
-          id: `task-pending-${pendingTasks.length}`,
-          title: `✅ Tarefas da Equipe`,
-          description: `${pendingTasks.length} tarefa(s) pendente(s) necessitam de atenção.`,
-          type: 'task',
-          date: 'Hoje',
-          read: false,
-          route: '/tarefas',
         });
       }
 

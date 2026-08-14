@@ -86,47 +86,24 @@ export const PatientDetailModal: React.FC<PatientDetailModalProps> = ({
     }
   };
 
-  const handleGenerateAiFollowup = async () => {
-    setGeneratingAi(true);
+  const handleGenerateAiFollowup = () => {
     setAiError('');
     setCopySuccess(false);
 
-    try {
-      const pendingBudgets = budgets.filter((b) => b.status === 'enviado' || b.status === 'rascunho');
-      const lastAppt = appointments[0];
+    const pendingBudgets = budgets.filter((b) => b.status === 'enviado' || b.status === 'rascunho');
+    const lastAppt = appointments[0];
 
-      let detailsContext = patient.notes || '';
-      if (pendingBudgets.length > 0) {
-        detailsContext += ` Possui orçamento pendente de R$ ${pendingBudgets[0].amount} (${pendingBudgets[0].description}).`;
-      } else if (lastAppt) {
-        detailsContext += ` Última consulta realizada em ${new Date(lastAppt.date).toLocaleDateString('pt-BR')} sobre ${lastAppt.procedure}.`;
-      } else {
-        detailsContext += ' Retorno de acompanhamento preventivo da saúde bucal / estética.';
-      }
+    let msg = `Olá, ${patient.name}!\n\nAqui é da equipe da ${clinicName}. Passando para saber como você está.`;
 
-      const res = await fetch('/api/ai/followup', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          patientName: patient.name,
-          contextType: pendingBudgets.length > 0 ? 'Follow-up de Orçamento Pendente' : 'Retorno e Acompanhamento Clínico',
-          details: detailsContext,
-          clinicName: clinicName,
-        }),
-      });
-
-      const data = await res.json();
-      if (data.success && data.message) {
-        setAiMessage(data.message);
-      } else {
-        setAiError(data.error || 'Não foi possível gerar a mensagem com IA no momento.');
-      }
-    } catch (err: any) {
-      console.error('Error requesting AI followup:', err);
-      setAiError('Falha ao se conectar com a inteligência artificial.');
-    } finally {
-      setGeneratingAi(false);
+    if (pendingBudgets.length > 0) {
+      msg += `\n\nNotamos seu orçamento pendente referente a ${pendingBudgets[0].description} no valor de R$ ${pendingBudgets[0].amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}.`;
+    } else if (lastAppt) {
+      msg += `\n\nReferente ao seu atendimento de ${lastAppt.procedure}, gostaria de agendar um retorno?`;
     }
+
+    msg += `\n\nFicamos à disposição para ajudar você a agendar!`;
+
+    setAiMessage(msg);
   };
 
   const handleCopyMessage = () => {
@@ -210,7 +187,7 @@ export const PatientDetailModal: React.FC<PatientDetailModalProps> = ({
             }`}
           >
             <UserCheck className="w-4 h-4" />
-            Visão Geral & IA Follow-up
+            Visão Geral & Mensagens
           </button>
           <button
             onClick={() => setActiveTab('appointments')}
@@ -281,23 +258,22 @@ export const PatientDetailModal: React.FC<PatientDetailModalProps> = ({
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2.5">
                         <div className="p-2 bg-teal-500/20 text-teal-400 rounded-xl border border-teal-500/30">
-                          <Sparkles className="w-5 h-5" />
+                          <MessageSquare className="w-5 h-5" />
                         </div>
                         <div>
-                          <h3 className="text-sm font-bold text-white">Assistente de Follow-up com IA</h3>
+                          <h3 className="text-sm font-bold text-white">Mensagem para Paciente (WhatsApp)</h3>
                           <p className="text-xs text-slate-400">
-                            Gera uma mensagem personalizada para WhatsApp analisando o histórico do paciente
+                            Gera uma mensagem pronta para envio analisando o histórico do paciente
                           </p>
                         </div>
                       </div>
 
                       <button
                         onClick={handleGenerateAiFollowup}
-                        disabled={generatingAi}
-                        className="px-4 py-2 bg-teal-500 hover:bg-teal-400 text-slate-950 font-bold rounded-xl text-xs transition flex items-center gap-2 shadow-md shadow-teal-500/20 cursor-pointer disabled:opacity-50"
+                        className="px-4 py-2 bg-teal-500 hover:bg-teal-400 text-slate-950 font-bold rounded-xl text-xs transition flex items-center gap-2 shadow-md shadow-teal-500/20 cursor-pointer"
                       >
-                        <Sparkles className="w-4 h-4" />
-                        {generatingAi ? 'Gerando Mensagem...' : '✨ Gerar Follow-up com IA'}
+                        <MessageSquare className="w-4 h-4" />
+                        Gerar Mensagem de Follow-up
                       </button>
                     </div>
 

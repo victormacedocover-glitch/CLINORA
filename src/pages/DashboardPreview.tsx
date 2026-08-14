@@ -44,20 +44,16 @@ export const DashboardPreview: React.FC<DashboardPreviewProps> = ({
     const loadDashboardData = async (isInitial = false) => {
       if (isInitial) setLoading(true);
       try {
-        const [pats, apps, budgs, txs, tsks] = await Promise.all([
+        const [pats, apps, budgs] = await Promise.all([
           supabaseServices.getPatients(),
           supabaseServices.getAppointments(),
           supabaseServices.getBudgets(),
-          supabaseServices.getTransactions(),
-          supabaseServices.getTasks(),
         ]);
 
         if (isMounted) {
           setPatients(pats);
           setAppointments(apps);
           setBudgets(budgs);
-          setTransactions(txs);
-          setTasks(tsks);
         }
       } catch (err) {
         console.error('Error loading dashboard data:', err);
@@ -136,7 +132,7 @@ export const DashboardPreview: React.FC<DashboardPreviewProps> = ({
       </div>
 
       {/* Stat Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
         <div
           onClick={() => onNavigate('/pacientes')}
           className="bg-slate-950 border border-slate-800 p-5 rounded-2xl cursor-pointer hover:border-teal-500/40 transition-colors space-y-3"
@@ -200,38 +196,10 @@ export const DashboardPreview: React.FC<DashboardPreviewProps> = ({
             </p>
           </div>
         </div>
-
-        <div
-          onClick={() => onNavigate('/financeiro')}
-          className="bg-slate-950 border border-slate-800 p-5 rounded-2xl cursor-pointer hover:border-teal-500/40 transition-colors space-y-3"
-        >
-          <div className="flex justify-between items-center text-slate-400 text-xs font-semibold">
-            <span>Saldo Financeiro</span>
-            <div className="p-2 rounded-lg bg-teal-500/10 text-teal-400">
-              <DollarSign className="w-4 h-4" />
-            </div>
-          </div>
-          <div>
-            <p
-              className={`text-3xl font-extrabold ${
-                saldoFinanceiro >= 0 ? 'text-white' : 'text-rose-400'
-              }`}
-            >
-              {loading
-                ? '...'
-                : `R$ ${saldoFinanceiro.toLocaleString('pt-BR', {
-                    minimumFractionDigits: 2,
-                  })}`}
-            </p>
-            <p className="text-[11px] text-teal-400 mt-1">
-              Receitas - Despesas operacionais
-            </p>
-          </div>
-        </div>
       </div>
 
       {/* Quick Sections Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Appointments Preview */}
         <div className="bg-slate-950 border border-slate-800 rounded-2xl p-6 space-y-4 shadow-lg">
           <div className="flex items-center justify-between border-b border-slate-800 pb-3">
@@ -256,7 +224,7 @@ export const DashboardPreview: React.FC<DashboardPreviewProps> = ({
             ) : appointments.length === 0 ? (
               <p className="text-xs text-slate-500 text-center py-4">Nenhuma consulta cadastrada na agenda.</p>
             ) : (
-              appointments.slice(0, 4).map((app) => (
+              appointments.slice(0, 5).map((app) => (
                 <div
                   key={app.id}
                   className="bg-slate-900 border border-slate-800/80 p-3.5 rounded-xl flex items-center justify-between text-xs"
@@ -266,7 +234,7 @@ export const DashboardPreview: React.FC<DashboardPreviewProps> = ({
                     <p className="text-slate-400 text-[11px]">{app.procedure}</p>
                   </div>
                   <div className="text-right space-y-1">
-                    <span className="font-mono text-teal-400 font-bold block">{app.time}</span>
+                    <span className="font-mono text-teal-400 font-bold block">{app.date} ({app.time})</span>
                     <span className="inline-block px-2 py-0.5 rounded text-[10px] bg-slate-800 text-slate-300 font-medium capitalize">
                       {app.status}
                     </span>
@@ -301,14 +269,14 @@ export const DashboardPreview: React.FC<DashboardPreviewProps> = ({
             ) : budgets.length === 0 ? (
               <p className="text-xs text-slate-500 text-center py-4">Nenhum orçamento emitido ainda.</p>
             ) : (
-              budgets.slice(0, 4).map((b) => (
+              budgets.slice(0, 5).map((b) => (
                 <div
                   key={b.id}
                   className="bg-slate-900 border border-slate-800/80 p-3.5 rounded-xl flex items-center justify-between text-xs"
                 >
                   <div>
                     <p className="font-bold text-white">{b.patientName}</p>
-                    <p className="text-slate-400 text-[11px] truncate max-w-[140px]">{b.description}</p>
+                    <p className="text-slate-400 text-[11px] truncate max-w-[180px]">{b.description}</p>
                     <p className="text-teal-400 font-semibold text-[11px] mt-0.5">
                       R$ {b.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                     </p>
@@ -323,54 +291,6 @@ export const DashboardPreview: React.FC<DashboardPreviewProps> = ({
                     }`}
                   >
                     {b.status}
-                  </span>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-
-        {/* Tasks Summary */}
-        <div className="bg-slate-950 border border-slate-800 rounded-2xl p-6 space-y-4 shadow-lg">
-          <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-            <h3 className="font-bold text-white text-sm flex items-center gap-2">
-              <CheckSquare className="w-4 h-4 text-teal-400" />
-              Tarefas ({pendingTasksCount} pendentes)
-            </h3>
-            <button
-              onClick={() => onNavigate('/tarefas')}
-              className="text-xs text-teal-400 hover:underline flex items-center gap-1 font-semibold"
-            >
-              Ver todas <ChevronRight className="w-3.5 h-3.5" />
-            </button>
-          </div>
-
-          <div className="space-y-3">
-            {loading ? (
-              <div className="text-center py-6 text-slate-500 text-xs flex items-center justify-center gap-2">
-                <Loader2 className="w-4 h-4 animate-spin text-teal-400" />
-                Carregando tarefas...
-              </div>
-            ) : tasks.length === 0 ? (
-              <p className="text-xs text-slate-500 text-center py-4">Nenhuma tarefa pendente.</p>
-            ) : (
-              tasks.slice(0, 4).map((t) => (
-                <div
-                  key={t.id}
-                  className="bg-slate-900 border border-slate-800/80 p-3.5 rounded-xl flex items-center justify-between text-xs"
-                >
-                  <div>
-                    <p className="font-bold text-white">{t.title}</p>
-                    {t.dueDate && <p className="text-slate-400 text-[11px]">Vencimento: {t.dueDate}</p>}
-                  </div>
-                  <span
-                    className={`px-2 py-0.5 rounded text-[10px] font-medium capitalize ${
-                      t.status === 'concluida'
-                        ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                        : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
-                    }`}
-                  >
-                    {t.status.replace('_', ' ')}
                   </span>
                 </div>
               ))

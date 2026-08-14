@@ -37,9 +37,6 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
     { label: 'Agenda', route: '/agenda', icon: Calendar },
     { label: 'Procedimentos', route: '/procedimentos', icon: Sliders },
     { label: 'Orçamentos', route: '/orcamentos', icon: FileText },
-    { label: 'Financeiro', route: '/financeiro', icon: DollarSign },
-    { label: 'Tarefas', route: '/tarefas', icon: CheckSquare },
-    { label: 'Relatórios', route: '/relatorios', icon: BarChart3 },
     { label: 'Configurações', route: '/configuracoes', icon: Settings },
     { label: 'Meu Perfil', route: '/perfil', icon: User },
   ];

@@ -15,9 +15,6 @@ import { PatientsPage } from './pages/PatientsPage';
 import { AgendaPage } from './pages/AgendaPage';
 import { ProceduresPage } from './pages/ProceduresPage';
 import { BudgetsPage } from './pages/BudgetsPage';
-import { FinancialPage } from './pages/FinancialPage';
-import { TasksPage } from './pages/TasksPage';
-import { RelatoriosPage } from './pages/RelatoriosPage';
 import { ConfiguracoesPage } from './pages/ConfiguracoesPage';
 import { Navbar } from './components/Navbar';
 import { Footer } from './components/Footer';
@@ -241,7 +238,7 @@ export default function App() {
     }
   }, [user]);
 
-  // Route guard: strictly restrict access to system tools
+  // Route guard: strictly restrict access to system tools and handle direct login
   useEffect(() => {
     const protectedToolRoutes = [
       '/dashboard',
@@ -249,9 +246,6 @@ export default function App() {
       '/agenda',
       '/orcamentos',
       '/procedimentos',
-      '/financeiro',
-      '/tarefas',
-      '/relatorios',
       '/configuracoes',
       '/perfil',
       '/admin',
@@ -265,6 +259,14 @@ export default function App() {
         setCurrentRoute('/checkout');
         window.history.replaceState({}, '', '/checkout');
       }
+    } else if (user && (currentRoute === '/' || currentRoute === '/login' || currentRoute === '/cadastro')) {
+      if (subscriptionStatus === 'active' || user.role === 'super_admin') {
+        setCurrentRoute('/dashboard');
+        window.history.replaceState({}, '', '/dashboard');
+      } else {
+        setCurrentRoute('/checkout');
+        window.history.replaceState({}, '', '/checkout');
+      }
     }
   }, [currentRoute, user, subscriptionStatus]);
 
@@ -275,9 +277,6 @@ export default function App() {
       '/agenda',
       '/orcamentos',
       '/procedimentos',
-      '/financeiro',
-      '/tarefas',
-      '/relatorios',
       '/configuracoes',
       '/perfil',
     ].includes(route);
@@ -367,9 +366,6 @@ export default function App() {
       '/agenda',
       '/orcamentos',
       '/procedimentos',
-      '/financeiro',
-      '/tarefas',
-      '/relatorios',
       '/configuracoes',
       '/perfil',
       '/admin',
@@ -399,12 +395,9 @@ export default function App() {
               <DashboardPreview clinicName={user.clinicName} onNavigate={navigate} />
             )}
             {currentRoute === '/pacientes' && <PatientsPage />}
-            {currentRoute === '/agenda' && <AgendaPage />}
+            {currentRoute === '/agenda' && <AgendaPage onNavigate={navigate} />}
             {currentRoute === '/procedimentos' && <ProceduresPage />}
-            {currentRoute === '/orcamentos' && <BudgetsPage />}
-            {currentRoute === '/financeiro' && <FinancialPage />}
-            {currentRoute === '/tarefas' && <TasksPage />}
-            {currentRoute === '/relatorios' && <RelatoriosPage />}
+            {currentRoute === '/orcamentos' && <BudgetsPage onNavigate={navigate} />}
             {currentRoute === '/configuracoes' && (
               <ConfiguracoesPage
                 clinicName={user.clinicName}
