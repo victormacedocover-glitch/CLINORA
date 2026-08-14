@@ -50,25 +50,78 @@ export default async function handler(req: any, res: any) {
         auth: { persistSession: false },
       });
 
-      if (user_id) {
-        await supabaseAdmin
-          .from('users')
-          .update({
-            subscription_status: 'active',
-            plan: 'pro_lifetime',
+      let targetUid = user_id;
+      let targetClinicId: string | null = null;
+
+      // If only email is provided, lookup user_id in auth or profiles
+      if (!targetUid && email) {
+        const { data: profile } = await supabaseAdmin
+          .from('profiles')
+          .select('user_id, clinic_id')
+          .eq('email', email)
+          .maybeSingle();
+
+        if (profile) {
+          targetUid = profile.user_id;
+          targetClinicId = profile.clinic_id;
+        } else {
+          const authList = await supabaseAdmin.auth.admin.listUsers();
+          const found = authList.data?.users?.find((u) => u.email?.toLowerCase() === email.toLowerCase());
+          if (found) {
+            targetUid = found.id;
+          }
+        }
+      }
+
+      if (targetUid) {
+        if (!targetClinicId) {
+          const { data: prof } = await supabaseAdmin
+            .from('profiles')
+            .select('clinic_id')
+            .eq('user_id', targetUid)
+            .maybeSingle();
+          if (prof?.clinic_id) targetClinicId = prof.clinic_id;
+        }
+
+        // 1. Grant access entitlement
+        await supabaseAdmin.from('access_entitlements').upsert(
+          {
+            user_id: targetUid,
+            clinic_id: targetClinicId || null,
+            access_type: 'lifetime',
+            status: 'active',
+            granted_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
-          })
-          .eq('id', user_id);
-        accessGranted = true;
-      } else if (email) {
-        await supabaseAdmin
-          .from('users')
-          .update({
-            subscription_status: 'active',
-            plan: 'pro_lifetime',
-            updated_at: new Date().toISOString(),
-          })
-          .eq('email', email);
+          },
+          { onConflict: 'user_id' }
+        );
+
+        // 2. Ensure clinic is active
+        if (targetClinicId) {
+          await supabaseAdmin
+            .from('clinics')
+            .update({
+              status: 'active',
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', targetClinicId);
+        }
+
+        // 3. Record or update payment record
+        try {
+          await supabaseAdmin.from('payments').insert({
+            user_id: targetUid,
+            clinic_id: targetClinicId || null,
+            mercado_pago_payment_id: String(payment.id),
+            amount: Number(payment.transaction_amount) || 149.90,
+            currency: payment.currency_id || 'BRL',
+            status: 'approved',
+            payment_method: payment.payment_method_id || payment.payment_type_id || 'mercadopago',
+          });
+        } catch (payErr) {
+          console.warn('Payment insert warning:', payErr);
+        }
+
         accessGranted = true;
       }
     }

@@ -100,25 +100,51 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
           }
         }
 
-        // 2. Call RPC create_initial_clinic as required
+        // 2. Call backend service role to reliably provision clinic, profile and access entitlement
         try {
-          const { data: rpcData, error: rpcErr } = await supabase.rpc('create_initial_clinic', {
-            p_name: clinicName,
-            p_phone: clinicPhone,
-            p_email: cleanEmail,
-            p_full_name: fullName,
+          const apiInitRes = await fetch('/api/admin-user-management', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'create_initial_account',
+              userId: createdUserId,
+              email: cleanEmail,
+              fullName,
+              clinicName,
+              phone: clinicPhone,
+            }),
           });
-
-          if (rpcErr) {
-            console.error('Erro na RPC create_initial_clinic:', rpcErr);
-          } else {
-            createdClinicId = typeof rpcData === 'string' ? rpcData : rpcData?.id || rpcData?.clinic_id || undefined;
+          if (apiInitRes.ok) {
+            const apiInitData = await apiInitRes.json();
+            if (apiInitData.clinicId) {
+              createdClinicId = apiInitData.clinicId;
+            }
           }
-        } catch (rpcExecErr) {
-          console.error('Exceção ao chamar create_initial_clinic:', rpcExecErr);
+        } catch (apiErr) {
+          console.warn('Backend serverless account provisioning fallback error:', apiErr);
         }
 
-        // Direct fallback creation if RPC did not return a clinic ID
+        // 3. Call RPC create_initial_clinic as client-side fallback if not already created
+        if (!createdClinicId) {
+          try {
+            const { data: rpcData, error: rpcErr } = await supabase.rpc('create_initial_clinic', {
+              p_name: clinicName,
+              p_phone: clinicPhone,
+              p_email: cleanEmail,
+              p_full_name: fullName,
+            });
+
+            if (rpcErr) {
+              console.error('Erro na RPC create_initial_clinic:', rpcErr);
+            } else {
+              createdClinicId = typeof rpcData === 'string' ? rpcData : rpcData?.id || rpcData?.clinic_id || undefined;
+            }
+          } catch (rpcExecErr) {
+            console.error('Exceção ao chamar create_initial_clinic:', rpcExecErr);
+          }
+        }
+
+        // 4. Direct fallback creation if still not created
         if (createdUserId && !createdClinicId) {
           try {
             const { data: newClinic } = await supabase
@@ -151,7 +177,7 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
           }
         }
 
-        // 3. Create initial access entitlement with status 'pending'
+        // 5. Create initial access entitlement with status 'pending'
         if (createdUserId) {
           try {
             await supabase.from('access_entitlements').upsert(

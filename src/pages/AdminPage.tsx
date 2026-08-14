@@ -130,14 +130,14 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate, currentUser })
     }, 4000);
   };
 
-  // Fetch real administrative data from backend Netlify function
+  // Fetch real administrative data from backend API
   const fetchData = async () => {
     setLoading(true);
     setAccessDenied(false);
     setErrorMessage(null);
 
     try {
-      const response = await fetch('/.netlify/functions/admin-user-management', {
+      const response = await fetch('/api/admin-user-management', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -201,7 +201,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate, currentUser })
   // Update Access Status Handler (Ativar, Pendente, Bloquear, Desbloquear)
   const handleUpdateAccessStatus = async (user: any, newStatus: 'active' | 'pending' | 'blocked') => {
     try {
-      const response = await fetch('/.netlify/functions/admin-user-management', {
+      const response = await fetch('/api/admin-user-management', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -242,7 +242,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate, currentUser })
   // Release Manual Access Handler (Pagamento Aprovado mas Acesso Pendente)
   const handleReleaseManualAccess = async (user: any) => {
     try {
-      const response = await fetch('/.netlify/functions/admin-user-management', {
+      const response = await fetch('/api/admin-user-management', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -273,7 +273,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate, currentUser })
   // Confirm User Email Handler (Official Supabase Auth Admin API)
   const handleConfirmEmail = async (user: any) => {
     try {
-      const response = await fetch('/.netlify/functions/admin-user-management', {
+      const response = await fetch('/api/admin-user-management', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -321,7 +321,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate, currentUser })
     setCredLoading(true);
 
     try {
-      const response = await fetch('/.netlify/functions/admin-user-management', {
+      const response = await fetch('/api/admin-user-management', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -357,7 +357,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate, currentUser })
 
     setInfoSaving(true);
     try {
-      const response = await fetch('/.netlify/functions/admin-user-management', {
+      const response = await fetch('/api/admin-user-management', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
